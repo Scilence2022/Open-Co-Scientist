@@ -1,34 +1,64 @@
-# Strain Co-Scientist
+# Open Co-Scientist
 
 A TypeScript **Electron desktop application** that implements the multi-agent
-**Co-Scientist** architecture (Gottweis et al., *Nature* 2026), adapted from
-biomedical hypothesis generation to the **rational engineering of industrial
-microbial strains**. Give it a product target, a host, and constraints; a team
-of specialized agents then generates, peer-reviews, debates, ranks, evolves, and
-synthesizes concrete strain-design strategies — with a clean, professional
-monitoring & management UI.
+**Co-Scientist** architecture (Gottweis et al., *Nature* 2026) as a
+**domain-pluggable research platform**. The engine — a Supervisor, an
+asynchronous worker queue, seven specialized agents, an Elo tournament, and a
+predict → measure → recalibrate "learn" loop — is domain-neutral. Each research
+field plugs in as a **domain pack** that supplies its vocabulary, agent persona,
+prompts, judging criteria, experimental systems, and optional tool integrations.
 
-![Strain Co-Scientist — Dashboard](docs/screenshots/01_dashboard.png)
+**Strain engineering** (rational engineering of industrial microbial strains)
+ships as the flagship pack; a second **battery-electrode** pack is included to
+demonstrate that a completely different field plugs in without touching the
+engine. Give any domain a target, an experimental system, and constraints; the
+agents then generate, peer-review, debate, rank, evolve, and synthesize concrete,
+testable hypotheses — with a clean, professional monitoring & management UI.
+
+![Open Co-Scientist — Dashboard](docs/screenshots/01_dashboard.png)
 
 ---
 
 ## What it does
 
-Given a strain-engineering goal (e.g. *"increase mevalonate titer in E. coli"*),
-the system runs an asynchronous, self-improving loop that produces a ranked set
-of **strain designs**, each with:
+Given a research goal (e.g. *"increase mevalonate titer in E. coli"*, or
+*"increase the energy density of an NMC811 cathode"*), the system runs an
+asynchronous, self-improving loop that produces a ranked set of **hypotheses**,
+each with:
 
-- concrete **interventions** (knockouts, overexpression, knockdowns, promoter/RBS
-  tuning, heterologous pathways, transporter/cofactor engineering, dynamic
-  regulation, enzyme engineering),
-- a mechanistic rationale and predicted effect on titer/rate/yield,
-- a **Design-Build-Test-Learn (DBTL)** experimental plan,
-- construct/primer suggestions,
-- risk and biosafety assessment,
+- concrete **methods** (the domain's action vocabulary — e.g. knockouts /
+  overexpression / promoter tuning for strains, or cation doping / surface
+  coatings / electrolyte additives for batteries),
+- a mechanistic rationale and a structured, calibratable prediction,
+- a domain experimental plan (e.g. Design-Build-Test-Learn),
+- construct/recipe **artifacts** from optional tool integrations,
+- risk and (where the pack defines it) compliance/safety assessment,
 - literature citations and an Elo-based quality ranking,
-- and a synthesized **research overview** (engineering roadmap) for the scientist.
+- and a synthesized **research overview** roadmap for the scientist.
 
-## Architecture — faithful to the paper, retargeted to strain engineering
+## Domain packs — the pluggable seam
+
+Everything field-specific lives behind one contract,
+[`DomainPack`](src/shared/domainpack.ts): identity + UI labels, the vocabulary
+(objectives, method types, metrics, plan phases, outcomes, criteria), an
+experimental-system registry, hard-veto safety gates, optional MCP tool bindings,
+and the prompt builders (system persona, goal context, output schema, per-strategy
+and per-review-mode instructions). The Co-Scientist machinery never knows the
+domain — it resolves the active pack per campaign and reads everything through it.
+
+Built-in packs (`src/domains/`):
+
+| Pack | Field | Hypothesis | System | Methods |
+| --- | --- | --- | --- | --- |
+| **strain** *(default)* | Microbial strain engineering | Design | Host / chassis | Knockout, overexpression, promoter swap, … |
+| **battery** | Li-ion electrode materials | Formulation | Cell format | Cation doping, surface coating, electrolyte additive, … |
+
+**Authoring a new domain** is one self-contained module under `src/domains/<id>/`
+that implements `DomainPack`, registered in `src/domains/index.ts`. No engine,
+tournament, learn-loop, or UI-shell changes are required — the battery pack is the
+worked reference. New campaigns pick their domain in the create-campaign drawer.
+
+## Architecture — faithful to the paper, domain-pluggable
 
 Four components from the Co-Scientist paper:
 
@@ -270,15 +300,16 @@ A left-nav workstation shell with ten views:
 
 ```
 src/
-  shared/        domain types, host presets, IPC contract (main <-> renderer)
+  shared/        domain types, DomainPack contract + registry, IPC contract
+  domains/       domain packs — strain/ (flagship), battery/ (example)
   main/
-    engine/      Supervisor, TaskQueue, agents/, tournament/, prompts/
+    engine/      Supervisor, TaskQueue, agents/, tournament/, prompts/ (pack-routed)
     llm/         provider-agnostic client (Anthropic + OpenAI-compatible)
-    mcp/         deep-research & CodeXomics MCP wrappers
+    mcp/         generic MCP transport + manager (deep-research + pack tools)
     memory/      persistent context-memory store
     ipc/         typed ipcMain handlers
   preload/       contextBridge typed `window.api`
-  renderer/      React UI (views/, components/, store/, styles/)
+  renderer/      React UI (views/, components/, store/, styles/) — pack-driven labels
 ```
 
 ## Notes & scope
