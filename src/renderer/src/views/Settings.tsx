@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useStore } from '../store/useStore'
+import { packRegistry } from '@shared/packRegistry'
+import type { McpServerConfig } from '@shared/domain'
+import type { PackToolBinding, SafetyGate } from '@shared/domainpack'
 import { IconCheck, IconRefresh } from '../components/Icons'
 import {
   AGENT_LABELS,
@@ -92,7 +95,7 @@ export function Settings(): JSX.Element {
     setTimeout(() => setSaved(false), 2500)
   }
 
-  const testMcp = async (server: 'deepResearch' | 'codexomics') => {
+  const testMcp = async (server: string) => {
     await window.api.saveSettings(draft)
     setSettings(draft)
     setTests((t) => ({ ...t, [server]: 'loading' }))
@@ -705,21 +708,39 @@ function EngineTab({
         />
         <span className="hint">Max simultaneous agent tasks.</span>
       </div>
-      <label className="checkbox-row" style={{ marginTop: 6 }}>
-        <input
-          type="checkbox"
-          checked={draft.safety.enforceBiosafety}
-          onChange={(e) => patch((d) => (d.safety.enforceBiosafety = e.target.checked))}
-        />
-        Enforce biosafety gate (auto-reject low-safety designs)
-      </label>
+      {allSafetyGates().map((gate) => (
+        <label key={gate.settingKey} className="checkbox-row" style={{ marginTop: 6 }}>
+          <input
+            type="checkbox"
+            checked={draft.safety[gate.settingKey] ?? gate.defaultEnabled}
+            onChange={(e) => patch((d) => (d.safety[gate.settingKey] = e.target.checked))}
+          />
+          {gate.toggleLabel}
+        </label>
+      ))}
     </div>
   )
+}
+
+/** Hard-veto gates declared by any registered pack (deduped by settingKey). */
+function allSafetyGates(): SafetyGate[] {
+  const seen = new Map<string, SafetyGate>()
+  for (const p of packRegistry.list()) for (const g of p.safetyGates) if (!seen.has(g.settingKey)) seen.set(g.settingKey, g)
+  return [...seen.values()]
+}
+
+/** Tool bindings declared by any registered pack (deduped by id). */
+function allPackTools(): PackToolBinding[] {
+  const seen = new Map<string, PackToolBinding>()
+  for (const p of packRegistry.list()) for (const t of p.tools) if (!seen.has(t.id)) seen.set(t.id, t)
+  return [...seen.values()]
 }
 
 // ---------------------------------------------------------------------------
 // Grounding tab — MCP servers
 // ---------------------------------------------------------------------------
+
+const DEEP_RESEARCH_DEFAULT: McpServerConfig = { enabled: false, url: 'http://127.0.0.1:3000/api/mcp' }
 
 function GroundingTab({
   draft,
@@ -730,36 +751,46 @@ function GroundingTab({
   draft: AppSettings
   patch: (fn: (d: AppSettings) => void) => void
   tests: Record<string, McpTestResult | 'loading'>
-  onTestMcp: (server: 'deepResearch' | 'codexomics') => void
+  onTestMcp: (server: string) => void
 }): JSX.Element {
+  // Render a config row for a server id, seeding the draft entry on first edit.
+  const row = (id: string, label: string, fallback: McpServerConfig): JSX.Element => {
+    const cfg = draft.mcp[id] ?? fallback
+    const edit = (fn: (c: McpServerConfig) => void): void =>
+      patch((d) => {
+        const c = (d.mcp[id] ??= { ...fallback })
+        fn(c)
+      })
+    return (
+      <McpRow
+        label={label}
+        cfg={cfg}
+        onToggle={(v) => edit((c) => (c.enabled = v))}
+        onUrl={(v) => edit((c) => (c.url = v))}
+        onToken={(v) => edit((c) => (c.accessToken = v || undefined))}
+        result={tests[id]}
+        onTest={() => onTestMcp(id)}
+      />
+    )
+  }
+
+  const tools = allPackTools()
   return (
     <div className="card pad-lg">
       <div className="card-title" style={{ marginBottom: 6 }}>
         Grounding — MCP servers
       </div>
       <p className="faint" style={{ fontSize: 'var(--fs-sm)', marginTop: 0 }}>
-        Optional. Connect the deep-research server for literature grounding and CodeXomics for genomic data &amp; construct
-        design.
+        Optional. Connect the deep-research server for literature grounding, plus any domain-specific
+        tools the active research pack declares.
       </p>
-      <McpRow
-          label="Deep Research (literature)"
-          cfg={draft.mcp.deepResearch}
-          onToggle={(v) => patch((d) => (d.mcp.deepResearch.enabled = v))}
-          onUrl={(v) => patch((d) => (d.mcp.deepResearch.url = v))}
-          onToken={(v) => patch((d) => (d.mcp.deepResearch.accessToken = v || undefined))}
-          result={tests.deepResearch}
-          onTest={() => onTestMcp('deepResearch')}
-        />
-        <div className="divider" />
-        <McpRow
-          label="CodeXomics (genomics)"
-          cfg={draft.mcp.codexomics}
-          onToggle={(v) => patch((d) => (d.mcp.codexomics.enabled = v))}
-          onUrl={(v) => patch((d) => (d.mcp.codexomics.url = v))}
-          onToken={(v) => patch((d) => (d.mcp.codexomics.accessToken = v || undefined))}
-          result={tests.codexomics}
-          onTest={() => onTestMcp('codexomics')}
-        />
+      {row('deepResearch', 'Deep Research (literature)', DEEP_RESEARCH_DEFAULT)}
+      {tools.map((t) => (
+        <div key={t.id}>
+          <div className="divider" />
+          {row(t.id, t.label, t.defaultConfig)}
+        </div>
+      ))}
     </div>
   )
 }

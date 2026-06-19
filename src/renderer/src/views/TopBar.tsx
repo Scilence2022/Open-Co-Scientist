@@ -1,4 +1,4 @@
-import { useStore } from '../store/useStore'
+import { useStore, usePack } from '../store/useStore'
 import { NAV } from '../App'
 import { CampaignStatusPill } from '../components/ui'
 import { IconPause, IconPlay, IconStop } from '../components/Icons'
@@ -6,18 +6,21 @@ import { getProvider } from '@shared/providers'
 
 export function TopBar(): JSX.Element {
   const { campaigns, selectedId, selectCampaign, view, snapshot, settings } = useStore()
+  const pack = usePack()
   const campaign = snapshot?.campaign
   const status = campaign?.status
 
-  const title = NAV.find((n) => n.key === view)?.label ?? ''
+  const title = view === 'designs' ? pack.labels.hypothesisPlural : NAV.find((n) => n.key === view)?.label ?? ''
 
   const onStart = () => selectedId && window.api.startCampaign(selectedId)
   const onPause = () => selectedId && window.api.pauseCampaign(selectedId)
   const onResume = () => selectedId && window.api.resumeCampaign(selectedId)
   const onStop = () => selectedId && window.api.stopCampaign(selectedId)
 
-  const mcpOn =
-    (settings?.mcp.deepResearch.enabled ? 1 : 0) + (settings?.mcp.codexomics.enabled ? 1 : 0)
+  // Count enabled MCP servers: the core deep-research tool + the active pack's tools.
+  const serverIds = ['deepResearch', ...pack.tools.map((t) => t.id)]
+  const mcpTotal = serverIds.length
+  const mcpOn = serverIds.filter((id) => settings?.mcp[id]?.enabled).length
   // Usable when the providers serving the configured tiers have a key (or are
   // keyless local servers).
   const llm = settings?.llm
@@ -80,7 +83,7 @@ export function TopBar(): JSX.Element {
         {hasApiKey ? 'Live LLM' : 'No API key'}
       </span>
       <span className="badge" title="MCP servers enabled">
-        MCP {mcpOn}/2
+        MCP {mcpOn}/{mcpTotal}
       </span>
     </header>
   )

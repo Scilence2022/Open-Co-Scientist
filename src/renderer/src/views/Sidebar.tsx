@@ -1,9 +1,10 @@
-import { useStore } from '../store/useStore'
+import { useStore, usePack } from '../store/useStore'
 import { NAV } from '../App'
 import { IconSettings } from '../components/Icons'
 
 export function Sidebar(): JSX.Element {
   const { view, setView, snapshot, openDesign } = useStore()
+  const pack = usePack()
 
   const counts: Partial<Record<string, number>> = {
     designs: snapshot?.designs.filter((d) => d.status !== 'rejected').length,
@@ -18,16 +19,17 @@ export function Sidebar(): JSX.Element {
         <div className="brand-mark">
           <Logo />
           <div>
-            <div className="brand-title">Strain Co-Scientist</div>
+            <div className="brand-title">{pack.labels.appName}</div>
           </div>
         </div>
-        <div className="brand-sub">Rational strain engineering</div>
+        <div className="brand-sub">{pack.labels.tagline}</div>
       </div>
       <nav className="nav">
         <div className="nav-section">Workspace</div>
         {NAV.map((item) => {
           const Icon = item.icon
           const count = counts[item.key]
+          const label = item.key === 'designs' ? pack.labels.hypothesisPlural : item.label
           return (
             <div
               key={item.key}
@@ -38,7 +40,7 @@ export function Sidebar(): JSX.Element {
               }}
             >
               <Icon size={16} />
-              <span>{item.label}</span>
+              <span>{label}</span>
               {typeof count === 'number' && count > 0 && <span className="nav-count">{count}</span>}
             </div>
           )

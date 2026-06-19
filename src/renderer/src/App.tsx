@@ -60,7 +60,7 @@ export default function App(): JSX.Element {
     return (
       <div className="app" style={{ gridTemplateColumns: '1fr', gridTemplateAreas: '"main"' }}>
         <div className="empty" style={{ height: '100vh' }}>
-          Loading Strain Co-Scientist…
+          Loading Open Co-Scientist…
         </div>
       </div>
     )

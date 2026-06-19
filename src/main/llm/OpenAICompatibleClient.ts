@@ -28,8 +28,8 @@ export class OpenAICompatibleClient implements LLMClient {
     const headers: Record<string, string> = {}
     if (this.cfg.provider === 'openrouter') {
       // OpenRouter attribution headers (recommended for higher rate limits).
-      headers['HTTP-Referer'] = 'https://github.com/strain-co-scientist'
-      headers['X-Title'] = 'Strain Co-Scientist'
+      headers['HTTP-Referer'] = 'https://github.com/Scilence2022/Open-Co-Scientist'
+      headers['X-Title'] = 'Open Co-Scientist'
     }
     return headers
   }
