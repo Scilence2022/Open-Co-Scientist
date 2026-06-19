@@ -7,10 +7,12 @@ import type {
   ExperimentalResult,
   LLMProvider,
   Review,
-  StrainDesign
+  Hypothesis
 } from '@shared/domain'
 import { DEFAULT_TOURNAMENT_CONFIG, evidenceGradeFor, type TournamentConfig } from '@shared/domain'
-import { hostDisplayName } from '@shared/hosts'
+import { systemDisplayName } from '@shared/domainpack'
+import { packRegistry, resolvePack } from '@shared/packRegistry'
+import { registerDomainPacks } from '@domains/index'
 import type {
   CreateCampaignInput,
   EngineEvent,
@@ -24,13 +26,19 @@ import { computeCalibration } from './learn/Calibration'
 import { getProvider } from '@shared/providers'
 import { Store } from '../memory/Store'
 import { createLLMClient, listModels, type LLMClient } from '../llm'
-import { McpManager } from '../mcp/McpManager'
+import { McpManager, type ToolDef } from '../mcp/McpManager'
 import { DeepResearchClient } from '../mcp/DeepResearchClient'
-import { CodexomicsClient } from '../mcp/CodexomicsClient'
 import { EngineContext } from './context'
 import { Supervisor } from './Supervisor'
 import { MetaReviewAgent, isEmptyOverview } from './agents/MetaReviewAgent'
 import { INITIAL_ELO, updateElo, weightedTotal } from './tournament/Elo'
+
+/** Tool connection defs across all registered packs (for the MCP manager). */
+function allToolDefs(): ToolDef[] {
+  return packRegistry
+    .list()
+    .flatMap((p) => p.tools.map((t) => ({ id: t.id, label: t.label, defaultConfig: t.defaultConfig })))
+}
 
 /**
  * Top-level engine. Owns the context-memory store, settings, the MCP manager,
@@ -48,9 +56,10 @@ export class Engine {
     private emit: (event: EngineEvent) => void,
     storeRootOverride?: string
   ) {
+    registerDomainPacks()
     this.store = new Store(storeRootOverride)
     const settings = this.store.getSettings()
-    this.mcp = new McpManager(settings.mcp.deepResearch, settings.mcp.codexomics)
+    this.mcp = new McpManager(settings.mcp, allToolDefs())
     this.llm = createLLMClient(settings)
     this.ctx = this.buildContext(settings)
   }
@@ -60,7 +69,7 @@ export class Engine {
       this.store,
       this.llm,
       new DeepResearchClient(this.mcp.deepResearch),
-      new CodexomicsClient(this.mcp.codexomics),
+      this.mcp,
       settings,
       this.emit
     )
@@ -74,16 +83,17 @@ export class Engine {
 
   async saveSettings(settings: AppSettings): Promise<AppSettings> {
     const saved = await this.store.saveSettings(settings)
-    this.mcp.update(saved.mcp.deepResearch, saved.mcp.codexomics)
+    this.mcp.update(saved.mcp, allToolDefs())
     this.llm = createLLMClient(saved)
     this.ctx = this.buildContext(saved)
     return saved
   }
 
-  async testMcp(server: 'deepResearch' | 'codexomics'): Promise<McpTestResult> {
+  async testMcp(server: string): Promise<McpTestResult> {
     const settings = this.store.getSettings()
-    this.mcp.update(settings.mcp.deepResearch, settings.mcp.codexomics)
-    const conn = server === 'deepResearch' ? this.mcp.deepResearch : this.mcp.codexomics
+    this.mcp.update(settings.mcp, allToolDefs())
+    const conn = this.mcp.byServerId(server)
+    if (!conn) return { server, ok: false, message: `Unknown server "${server}"` }
     const res = await conn.test()
     return { server, ok: res.ok, message: res.message, toolCount: res.toolCount, tools: res.tools }
   }
@@ -132,7 +142,11 @@ export class Engine {
       tournamentConfig: input.tournamentConfig ?? DEFAULT_TOURNAMENT_CONFIG
     }
     if (!campaign.title.trim()) {
-      campaign.title = `${campaign.productTarget} — ${hostDisplayName(campaign.host.preset, campaign.host.customName)}`
+      const pack = resolvePack(campaign.packId)
+      campaign.title = pack.defaultCampaignTitle({
+        target: campaign.target,
+        systemShortName: systemDisplayName(pack, campaign.context)
+      })
     }
     this.store.upsertCampaign(campaign)
     this.ctx.log(campaign.id, 'system', 'info', 'Campaign created')
@@ -344,28 +358,29 @@ export class Engine {
     return campaign
   }
 
-  submitExpertDesign(input: ExpertDesignInput): StrainDesign {
+  submitExpertDesign(input: ExpertDesignInput): Hypothesis {
     const campaign = this.store.getCampaign(input.campaignId)
     if (!campaign) throw new Error('campaign not found')
     const now = Date.now()
-    const design: StrainDesign = {
+    const pack = resolvePack(campaign.packId)
+    const design: Hypothesis = {
       id: genId(12),
       campaignId: input.campaignId,
       createdAt: now,
       updatedAt: now,
       title: input.title,
       summary: input.summary,
-      chassis: input.chassis || hostDisplayName(campaign.host.preset, campaign.host.customName),
-      interventions: input.interventions,
+      system: input.system || systemDisplayName(pack, campaign.context),
+      methods: input.methods,
       mechanism: input.mechanism,
       predictedEffect: input.predictedEffect,
-      experimentalPlan: [],
-      constructSuggestions: [],
+      plan: [],
+      artifacts: [],
       risks: [],
       citations: [],
       novelty: 5,
       origin: 'expert',
-      status: 'active', // expert designs enter the tournament directly
+      status: 'active', // expert hypotheses enter the tournament directly
       lineage: { parentIds: [] },
       elo: INITIAL_ELO,
       eloHistory: [{ cycle: 0, at: now, elo: INITIAL_ELO }],
@@ -402,7 +417,7 @@ export class Engine {
     return review
   }
 
-  flagDesign(designId: string, flagged: boolean): StrainDesign {
+  flagDesign(designId: string, flagged: boolean): Hypothesis {
     const design = this.findDesign(designId)
     if (!design) throw new Error('design not found')
     design.status = flagged ? 'flagged' : 'active'
@@ -509,7 +524,7 @@ export class Engine {
     if (profile) this.ctx.addCalibration(profile)
   }
 
-  private findDesign(designId: string): StrainDesign | undefined {
+  private findDesign(designId: string): Hypothesis | undefined {
     for (const c of this.store.listCampaigns()) {
       const d = this.store.getDesign(c.id, designId)
       if (d) return d

@@ -1,27 +1,30 @@
-import type { CriterionKey, TournamentConfig } from '@shared/domain'
-import { CRITERIA_KEYS, CRITERION_LABELS } from '@shared/domain'
+import type { TournamentConfig } from '@shared/domain'
+import type { DomainPack } from '@shared/domainpack'
 
 /**
  * Editor for a campaign's tournament scoring configuration. Used both in the
  * create-campaign drawer and the Tournament view's mid-campaign re-rank panel.
+ * The judging axes come from the active domain pack.
  *
  * Weights are the lever the scientist cares about most: each match scores both
- * designs across these criteria and the higher weighted total wins, so raising
+ * hypotheses across these criteria and the higher weighted total wins, so raising
  * (say) Effectiveness above Novelty makes the whole ladder prefer impactful
  * targets over clever-but-marginal ones.
  */
 export function TournamentConfigEditor({
   value,
-  onChange
+  onChange,
+  pack
 }: {
   value: TournamentConfig
   onChange: (next: TournamentConfig) => void
+  pack: DomainPack
 }): JSX.Element {
   const set = (patch: Partial<TournamentConfig>): void => onChange({ ...value, ...patch })
-  const setWeight = (k: CriterionKey, n: number): void =>
+  const setWeight = (k: string, n: number): void =>
     onChange({ ...value, weights: { ...value.weights, [k]: clampNum(n, 0, 10) } })
 
-  const totalWeight = CRITERIA_KEYS.reduce((s, k) => s + (value.weights[k] ?? 0), 0)
+  const totalWeight = pack.criteria.reduce((s, c) => s + (value.weights[c.id] ?? 0), 0)
   const pct = (w: number): string => (totalWeight > 0 ? `${Math.round((w / totalWeight) * 100)}%` : '0%')
 
   return (
@@ -32,11 +35,12 @@ export function TournamentConfigEditor({
         weight to 0 to ignore a dimension entirely.
       </div>
       <div className="tc-weights">
-        {CRITERIA_KEYS.map((k) => {
+        {pack.criteria.map((c) => {
+          const k = c.id
           const w = value.weights[k] ?? 0
           return (
             <div key={k} className="tc-weight-row">
-              <label className="tc-weight-label">{CRITERION_LABELS[k]}</label>
+              <label className="tc-weight-label">{c.label}</label>
               <input
                 type="number"
                 min={0}

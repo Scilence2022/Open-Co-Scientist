@@ -1,11 +1,12 @@
-import type { Campaign, StrainDesign } from '@shared/domain'
+import type { Campaign, Hypothesis } from '@shared/domain'
+import { resolvePack } from '@shared/packRegistry'
 import type { EngineContext } from '../context'
 import { parseJsonLoose } from '../../llm'
-import { generationPrompt, SYSTEM_PREAMBLE, type GenerationStrategy } from '../prompts'
+import { generationPrompt, systemPreamble, type GenerationStrategy } from '../prompts'
 import { coerceDesign, toDesignObjects } from './util'
 
 /**
- * Generation agent. Produces an initial set of designs (and later expansions)
+ * Generation agent. Produces an initial set of hypotheses (and later expansions)
  * using a rotating library of strategies, grounding in literature via the
  * deep-research MCP when available.
  */
@@ -19,7 +20,7 @@ export class GenerationAgent {
     cycle: number,
     metaFeedback?: string,
     empiricalPriors?: string
-  ): Promise<StrainDesign[]> {
+  ): Promise<Hypothesis[]> {
     const existingTitles = this.ctx.store.getDesigns(campaign.id).map((d) => d.title)
 
     // Literature grounding (best-effort).
@@ -27,7 +28,7 @@ export class GenerationAgent {
     if (strategy === 'literature' && this.ctx.deepResearch.available) {
       const finding = await this.ctx.deepResearch.search([
         {
-          query: `metabolic engineering strategies to ${campaign.objective} ${campaign.productTarget} in ${campaign.host.preset}`,
+          query: resolvePack(campaign.packId).literatureQuery(campaign, 'generation'),
           researchGoal: campaign.goal
         }
       ])
@@ -48,7 +49,7 @@ export class GenerationAgent {
     // is safe — it prevents the truncated-JSON → 0-designs failure mode.
     const res = await this.ctx.llm.complete({
       agent: 'generation',
-      system: SYSTEM_PREAMBLE,
+      system: systemPreamble(campaign),
       prompt,
       effort: 'high',
       think: true,
@@ -58,7 +59,7 @@ export class GenerationAgent {
     const list = toDesignObjects(parseJsonLoose<any>(res.text))
     const designs = list
       .map((o) => coerceDesign(o, campaign, 'generated', () => this.ctx.newId()))
-      .filter((d): d is StrainDesign => !!d)
+      .filter((d): d is Hypothesis => !!d)
 
     designs.forEach((d) => this.ctx.upsertDesign(d))
     if (designs.length === 0) {

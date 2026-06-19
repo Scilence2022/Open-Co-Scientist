@@ -1,21 +1,21 @@
-import type { Campaign, StrainDesign } from '@shared/domain'
+import type { Campaign, Hypothesis } from '@shared/domain'
 import type { EngineContext } from '../context'
 
 /**
- * Proximity agent. Computes a similarity graph over designs (cheaply and
- * deterministically, from intervention/target/text features) to support
+ * Proximity agent. Computes a similarity graph over hypotheses (cheaply and
+ * deterministically, from method/target/text features) to support
  * de-duplication, similar-pair selection for the tournament, and a cluster map
  * for the UI. No LLM call required.
  */
 export class ProximityAgent {
   constructor(private ctx: EngineContext) {}
 
-  /** Feature set for a design: intervention types, targets, and content tokens. */
-  private features(d: StrainDesign): Set<string> {
+  /** Feature set for a hypothesis: method types, targets, and content tokens. */
+  private features(d: Hypothesis): Set<string> {
     const tokens = new Set<string>()
-    for (const iv of d.interventions) {
-      tokens.add(`type:${iv.type}`)
-      for (const t of iv.targets) {
+    for (const m of d.methods) {
+      tokens.add(`type:${m.type}`)
+      for (const t of m.targets) {
         for (const part of t.toLowerCase().split(/[^a-z0-9]+/).filter((x) => x.length > 2)) {
           tokens.add(`tgt:${part}`)
         }
@@ -30,7 +30,7 @@ export class ProximityAgent {
     return tokens
   }
 
-  similarity(a: StrainDesign, b: StrainDesign): number {
+  similarity(a: Hypothesis, b: Hypothesis): number {
     const fa = this.features(a)
     const fb = this.features(b)
     let inter = 0
@@ -44,7 +44,7 @@ export class ProximityAgent {
     const designs = this.ctx.store
       .getDesigns(campaign.id)
       .filter((d) => d.status === 'active' || d.status === 'flagged')
-    const clusters: StrainDesign[][] = []
+    const clusters: Hypothesis[][] = []
     for (const d of designs) {
       let placed = false
       for (const cluster of clusters) {
@@ -77,11 +77,11 @@ export class ProximityAgent {
    * Pick the most-similar partner for a design (for a tournament match),
    * preferring an unmatched-but-close design.
    */
-  closest(campaign: Campaign, design: StrainDesign, exclude: Set<string>): StrainDesign | null {
+  closest(campaign: Campaign, design: Hypothesis, exclude: Set<string>): Hypothesis | null {
     const others = this.ctx.store
       .getDesigns(campaign.id)
       .filter((d) => d.id !== design.id && !exclude.has(d.id) && (d.status === 'active' || d.status === 'flagged'))
-    let best: StrainDesign | null = null
+    let best: Hypothesis | null = null
     let bestSim = -1
     for (const o of others) {
       const sim = this.similarity(design, o)

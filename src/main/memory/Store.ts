@@ -27,7 +27,7 @@ import type {
   ModelRef,
   ProviderAccountConfig,
   Review,
-  StrainDesign,
+  Hypothesis,
   SystemStatistics,
   TaskRecord
 } from '@shared/domain'
@@ -161,7 +161,7 @@ export class Store {
 
   // -- Designs --------------------------------------------------------------
 
-  upsertDesign(design: StrainDesign): void {
+  upsertDesign(design: Hypothesis): void {
     const snap = this.cache.get(design.campaignId)
     if (!snap) return
     const idx = snap.designs.findIndex((d) => d.id === design.id)
@@ -171,11 +171,11 @@ export class Store {
     this.markDirty(design.campaignId)
   }
 
-  getDesign(campaignId: string, designId: string): StrainDesign | undefined {
+  getDesign(campaignId: string, designId: string): Hypothesis | undefined {
     return this.cache.get(campaignId)?.designs.find((d) => d.id === designId)
   }
 
-  getDesigns(campaignId: string): StrainDesign[] {
+  getDesigns(campaignId: string): Hypothesis[] {
     return this.cache.get(campaignId)?.designs ?? []
   }
 
@@ -321,15 +321,19 @@ export class Store {
 
 /** Deep-ish merge so older settings files gain new default keys. */
 function mergeSettings(base: AppSettings, raw: Partial<AppSettings>): AppSettings {
+  // MCP servers are keyed by id (deepResearch + pack tool ids). Overlay any
+  // stored server config onto the defaults, and carry through unknown ids.
+  const mcp: Record<string, AppSettings['mcp'][string]> = { ...base.mcp }
+  for (const [id, cfg] of Object.entries(raw.mcp ?? {})) {
+    if (cfg && typeof cfg === 'object') mcp[id] = { ...(base.mcp[id] ?? { enabled: false, url: '' }), ...cfg }
+  }
   return {
     llm: migrateLlm(base.llm, (raw.llm ?? {}) as Record<string, unknown>),
-    mcp: {
-      deepResearch: { ...base.mcp.deepResearch, ...raw.mcp?.deepResearch },
-      codexomics: { ...base.mcp.codexomics, ...raw.mcp?.codexomics }
-    },
+    mcp,
     run: { ...base.run, ...raw.run },
-    safety: { ...base.safety, ...raw.safety },
-    ui: { ...base.ui, ...raw.ui }
+    safety: { ...base.safety, ...(raw.safety ?? {}) },
+    ui: { ...base.ui, ...raw.ui },
+    ...(raw.activePackId ? { activePackId: raw.activePackId } : {})
   }
 }
 

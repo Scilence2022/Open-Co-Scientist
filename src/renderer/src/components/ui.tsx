@@ -1,11 +1,13 @@
 import type {
   CampaignStatus,
-  DesignStatus,
   EvidenceGrade,
+  HypothesisStatus,
   ResultOutcome,
   Review
 } from '@shared/domain'
-import { EVIDENCE_GRADE_LABELS, RESULT_OUTCOME_LABELS } from '@shared/domain'
+import { EVIDENCE_GRADE_LABELS } from '@shared/domain'
+import { labelFor } from '@shared/domainpack'
+import { usePack } from '../store/useStore'
 
 export function timeAgo(ts: number): string {
   const s = Math.floor((Date.now() - ts) / 1000)
@@ -23,8 +25,8 @@ function pad(n: number): string {
   return n.toString().padStart(2, '0')
 }
 
-export function DesignStatusBadge({ status }: { status: DesignStatus }): JSX.Element {
-  const map: Record<DesignStatus, { cls: string; label: string; hint: string }> = {
+export function DesignStatusBadge({ status }: { status: HypothesisStatus }): JSX.Element {
+  const map: Record<HypothesisStatus, { cls: string; label: string; hint: string }> = {
     draft: { cls: '', label: 'Draft', hint: 'Generated, awaiting its initial review.' },
     reviewing: { cls: 'blue', label: 'Reviewing', hint: 'Under review.' },
     active: {
@@ -35,9 +37,9 @@ export function DesignStatusBadge({ status }: { status: DesignStatus }): JSX.Ele
     rejected: {
       cls: 'err',
       label: 'Rejected',
-      hint: 'Failed the initial safety/feasibility review — never entered the tournament. This is independent of Elo (rejected designs keep the default 1200 because they play no matches).'
+      hint: 'Failed the initial safety/feasibility review — never entered the tournament. This is independent of Elo (rejected hypotheses keep the default 1200 because they play no matches).'
     },
-    flagged: { cls: 'warn', label: 'Flagged', hint: 'Flagged for the wet lab.' }
+    flagged: { cls: 'warn', label: 'Flagged', hint: 'Flagged for experimental testing.' }
   }
   const m = map[status]
   return (
@@ -97,15 +99,18 @@ export function EvidenceBadge({
   )
 }
 
+/** Style for the reserved canonical outcomes; pack-added ids fall back to neutral. */
+const OUTCOME_CLS: Record<string, string> = {
+  confirmed: 'ok',
+  partial: 'blue',
+  refuted: 'err',
+  inconclusive: 'warn',
+  'build-failed': 'err'
+}
+
 export function OutcomeBadge({ outcome }: { outcome: ResultOutcome }): JSX.Element {
-  const cls: Record<ResultOutcome, string> = {
-    confirmed: 'ok',
-    partial: 'blue',
-    refuted: 'err',
-    inconclusive: 'warn',
-    'build-failed': 'err'
-  }
-  return <span className={`badge ${cls[outcome]}`}>{RESULT_OUTCOME_LABELS[outcome]}</span>
+  const pack = usePack()
+  return <span className={`badge ${OUTCOME_CLS[outcome] ?? ''}`}>{labelFor(pack.outcomes, outcome)}</span>
 }
 
 export function OriginBadge({ origin }: { origin: string }): JSX.Element {

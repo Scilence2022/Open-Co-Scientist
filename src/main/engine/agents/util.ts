@@ -1,53 +1,36 @@
-import type {
-  Campaign,
-  DBTLStep,
-  DesignOrigin,
-  Intervention,
-  InterventionType,
-  QuantPrediction,
-  StrainDesign
-} from '@shared/domain'
-import { hostDisplayName } from '@shared/hosts'
+import type { Artifact, Campaign, Hypothesis, HypothesisOrigin, Method, PlanStep, QuantPrediction } from '@shared/domain'
+import type { DomainPack } from '@shared/domainpack'
+import { systemDisplayName } from '@shared/domainpack'
+import { resolvePack } from '@shared/packRegistry'
 import { INITIAL_ELO } from '../tournament/Elo'
 
-const VALID_INTERVENTIONS: InterventionType[] = [
-  'knockout',
-  'overexpression',
-  'knockdown',
-  'promoter-swap',
-  'rbs-tuning',
-  'heterologous-pathway',
-  'transporter-engineering',
-  'cofactor-balancing',
-  'dynamic-regulation',
-  'enzyme-engineering',
-  'other'
-]
-
-function coerceInterventions(raw: any): Intervention[] {
+/** Coerce loosely-parsed actions into typed methods, validating type ids against the pack. */
+function coerceMethods(raw: any, pack: DomainPack): Method[] {
   if (!Array.isArray(raw)) return []
+  const valid = new Set(pack.methodTypes.map((m) => m.id))
   return raw.map((r) => ({
-    type: VALID_INTERVENTIONS.includes(r?.type) ? r.type : 'other',
+    type: valid.has(r?.type) ? r.type : 'other',
     targets: Array.isArray(r?.targets) ? r.targets.map(String) : r?.targets ? [String(r.targets)] : [],
     details: String(r?.details ?? '')
   }))
 }
 
-function coercePlan(raw: any): DBTLStep[] {
+/** Coerce a loosely-parsed plan, validating phase ids against the pack. */
+function coercePlan(raw: any, pack: DomainPack): PlanStep[] {
   if (!Array.isArray(raw)) return []
-  const phases = ['design', 'build', 'test', 'learn']
+  const phases = pack.planPhases.map((p) => p.id)
+  const fallback = phases[0] ?? 'design'
   return raw.map((r) => ({
-    phase: phases.includes(r?.phase) ? r.phase : 'design',
+    phase: phases.includes(r?.phase) ? r.phase : fallback,
     description: String(r?.description ?? '')
   }))
 }
 
-const QP_METRICS: QuantPrediction['metric'][] = ['titer', 'rate', 'yield', 'tolerance', 'other']
-
 /** Coerce a loosely-parsed structured prediction; returns undefined if unusable. */
-function coerceQuantPrediction(raw: any): QuantPrediction | undefined {
+function coerceQuantPrediction(raw: any, pack: DomainPack): QuantPrediction | undefined {
   if (!raw || typeof raw !== 'object') return undefined
-  const metric = QP_METRICS.includes(raw.metric) ? raw.metric : 'other'
+  const metrics = new Set(pack.metrics.map((m) => m.id))
+  const metric = metrics.has(raw.metric) ? raw.metric : 'other'
   const direction = raw.direction === 'decrease' ? 'decrease' : 'increase'
   const rc = Number(raw.relativeChange)
   const conf = Number(raw.confidence)
@@ -60,37 +43,51 @@ function coerceQuantPrediction(raw: any): QuantPrediction | undefined {
   return typeof pred.relativeChange === 'number' ? pred : undefined
 }
 
+/** Coerce loosely-parsed artifacts (construct/recipe suggestions). */
+function coerceArtifacts(raw: any): Artifact[] {
+  if (!Array.isArray(raw)) return []
+  return raw
+    .filter((a: any) => a && (a.label || a.detail))
+    .map((a: any) => ({
+      label: String(a.label ?? ''),
+      detail: String(a.detail ?? ''),
+      content: a.content ?? a.sequence ? String(a.content ?? a.sequence) : undefined,
+      source: String(a.source ?? 'model')
+    }))
+}
+
 /**
- * Normalise a loosely-parsed generation payload into an array of design
- * objects. Accepts a bare array, a single design object, or a common wrapper
- * the model sometimes emits despite being asked for a bare array
- * (`{ designs|strategies|results|items|data: [...] }`). Without this, a wrapped
- * array parsed to a single object with no `title` and silently yielded zero
- * designs.
+ * Normalise a loosely-parsed generation payload into an array of hypothesis
+ * objects. Accepts a bare array, a single object, or a common wrapper the model
+ * sometimes emits despite being asked for a bare array
+ * (`{ hypotheses|designs|strategies|results|items|data: [...] }`). Without this,
+ * a wrapped array parsed to a single object with no `title` and silently yielded
+ * zero hypotheses.
  */
 export function toDesignObjects(parsed: any): any[] {
   if (Array.isArray(parsed)) return parsed
   if (parsed && typeof parsed === 'object') {
-    for (const key of ['designs', 'strategies', 'results', 'items', 'data']) {
+    for (const key of ['hypotheses', 'designs', 'strategies', 'results', 'items', 'data']) {
       if (Array.isArray(parsed[key])) return parsed[key]
     }
-    return [parsed] // treat as a single design (coerceDesign rejects it if untitled)
+    return [parsed] // treat as a single hypothesis (coerceDesign rejects it if untitled)
   }
   return []
 }
 
-/** Build a StrainDesign from a loosely-parsed LLM object. */
+/** Build a {@link Hypothesis} from a loosely-parsed LLM object. */
 export function coerceDesign(
   obj: any,
   campaign: Campaign,
-  origin: DesignOrigin,
+  origin: HypothesisOrigin,
   newId: () => string
-): StrainDesign | null {
+): Hypothesis | null {
   if (!obj || typeof obj !== 'object') return null
   const title = String(obj.title ?? '').trim()
   if (!title) return null
+  const pack = resolvePack(campaign.packId)
   const now = Date.now()
-  const host = hostDisplayName(campaign.host.preset, campaign.host.customName)
+  const system = systemDisplayName(pack, campaign.context)
   return {
     id: newId(),
     campaignId: campaign.id,
@@ -98,13 +95,13 @@ export function coerceDesign(
     updatedAt: now,
     title,
     summary: String(obj.summary ?? ''),
-    chassis: String(obj.chassis ?? host),
-    interventions: coerceInterventions(obj.interventions),
+    system: String(obj.system ?? obj.chassis ?? system),
+    methods: coerceMethods(obj.methods ?? obj.interventions, pack),
     mechanism: String(obj.mechanism ?? ''),
     predictedEffect: String(obj.predictedEffect ?? ''),
-    quantPrediction: coerceQuantPrediction(obj.quantPrediction),
-    experimentalPlan: coercePlan(obj.experimentalPlan),
-    constructSuggestions: [],
+    quantPrediction: coerceQuantPrediction(obj.quantPrediction, pack),
+    plan: coercePlan(obj.plan ?? obj.experimentalPlan, pack),
+    artifacts: coerceArtifacts(obj.artifacts),
     risks: Array.isArray(obj.risks) ? obj.risks.map(String) : [],
     citations: Array.isArray(obj.citations)
       ? obj.citations

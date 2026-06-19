@@ -1,18 +1,13 @@
 import { useMemo } from 'react'
-import { useStore } from '../store/useStore'
+import { useStore, usePack } from '../store/useStore'
 import { Empty, EvidenceBadge } from '../components/ui'
 import { ResultsList } from '../components/Results'
 import { CalibrationScatter, BiasTrend } from '../components/Charts'
 import { IconExperiment } from '../components/Icons'
-import {
-  compareDesigns,
-  INTERVENTION_LABELS,
-  type ExperimentalResult,
-  type InterventionType,
-  type StrainDesign
-} from '@shared/domain'
+import { compareDesigns, type ExperimentalResult, type Hypothesis } from '@shared/domain'
+import { labelFor } from '@shared/domainpack'
 
-function signedPredicted(d: StrainDesign): number | undefined {
+function signedPredicted(d: Hypothesis): number | undefined {
   const p = d.quantPrediction
   if (!p || typeof p.relativeChange !== 'number') return undefined
   const mag = Math.abs(p.relativeChange)
@@ -28,6 +23,7 @@ function signedMeasured(r: ExperimentalResult): number | undefined {
 
 export function ExperimentsView(): JSX.Element {
   const { snapshot, refreshSnapshot } = useStore()
+  const pack = usePack()
 
   const data = useMemo(() => {
     const designs = snapshot?.designs ?? []
@@ -75,7 +71,7 @@ export function ExperimentsView(): JSX.Element {
     snapshot.campaign.status === 'error'
 
   const typeBias = latestCal
-    ? (Object.entries(latestCal.biasByInterventionType) as [InterventionType, number][])
+    ? (Object.entries(latestCal.biasByMethodType) as [string, number][])
         .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
         .slice(0, 6)
     : []
@@ -116,11 +112,11 @@ export function ExperimentsView(): JSX.Element {
           <BiasTrend profiles={calibration} />
           {typeBias.length > 0 && (
             <div className="col gap-sm" style={{ marginTop: 12 }}>
-              <div className="section-title">Bias by intervention type</div>
+              <div className="section-title">Bias by {pack.labels.method.toLowerCase()} type</div>
               {typeBias.map(([t, v]) => (
                 <div key={t} className="row gap-md">
                   <span className="muted" style={{ width: 120, fontSize: 'var(--fs-sm)' }}>
-                    {INTERVENTION_LABELS[t]}
+                    {labelFor(pack.methodTypes, t)}
                   </span>
                   <div className="bar-mini" style={{ flex: 1 }}>
                     <span

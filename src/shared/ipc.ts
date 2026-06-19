@@ -9,7 +9,7 @@ import type {
   Campaign,
   CampaignSnapshot,
   Review,
-  StrainDesign,
+  Hypothesis,
   ActivityEvent,
   SystemStatistics,
   TaskRecord,
@@ -29,15 +29,10 @@ export type CreateCampaignInput = Omit<
   'id' | 'createdAt' | 'updatedAt' | 'status' | 'researchPlan'
 >
 
-/** A manually-authored design contributed by the scientist (expert-in-the-loop). */
+/** A manually-authored hypothesis contributed by the scientist (expert-in-the-loop). */
 export type ExpertDesignInput = Pick<
-  StrainDesign,
-  | 'title'
-  | 'summary'
-  | 'chassis'
-  | 'interventions'
-  | 'mechanism'
-  | 'predictedEffect'
+  Hypothesis,
+  'title' | 'summary' | 'system' | 'methods' | 'mechanism' | 'predictedEffect'
 > & { campaignId: string }
 
 export type ExpertReviewInput = {
@@ -72,7 +67,8 @@ export interface McpTool {
 /** Result of testing an MCP connection. */
 export interface McpTestResult {
   ok: boolean
-  server: 'deepResearch' | 'codexomics'
+  /** Server id: the reserved core `deepResearch` or a pack tool id. */
+  server: string
   message: string
   toolCount?: number
   tools?: McpTool[]
@@ -125,7 +121,7 @@ export interface IpcApi {
   // Settings
   getSettings(): Promise<AppSettings>
   saveSettings(settings: AppSettings): Promise<AppSettings>
-  testMcp(server: 'deepResearch' | 'codexomics'): Promise<McpTestResult>
+  testMcp(server: string): Promise<McpTestResult>
   pingLlm(): Promise<LlmPingResult>
   /** Refresh a provider's available models using its saved credentials. */
   listProviderModels(provider: LLMProvider): Promise<ModelListResult>
@@ -152,9 +148,9 @@ export interface IpcApi {
 
   // Expert-in-the-loop
   refineGoal(campaignId: string, addendum: string): Promise<Campaign>
-  submitExpertDesign(input: ExpertDesignInput): Promise<StrainDesign>
+  submitExpertDesign(input: ExpertDesignInput): Promise<Hypothesis>
   submitExpertReview(input: ExpertReviewInput): Promise<Review>
-  flagDesign(designId: string, flagged: boolean): Promise<StrainDesign>
+  flagDesign(designId: string, flagged: boolean): Promise<Hypothesis>
 
   // Experimental-results feedback loop (DBTL "Learn")
   /** Record a wet-lab result; re-derives the design's evidence grade + campaign calibration. */
@@ -171,7 +167,7 @@ export type IpcApiChannel = keyof IpcApi
 export type EngineEvent =
   | { kind: 'activity'; campaignId: string; event: ActivityEvent }
   | { kind: 'statistics'; campaignId: string; stats: SystemStatistics }
-  | { kind: 'design-upsert'; campaignId: string; design: StrainDesign }
+  | { kind: 'design-upsert'; campaignId: string; design: Hypothesis }
   | { kind: 'review-added'; campaignId: string; review: Review }
   | { kind: 'match-added'; campaignId: string; match: Match }
   | { kind: 'meta-review'; campaignId: string; metaReview: MetaReview }

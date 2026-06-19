@@ -1,12 +1,13 @@
-import type { Campaign, EvolutionStrategy, StrainDesign } from '@shared/domain'
+import type { Campaign, EvolutionStrategy, Hypothesis } from '@shared/domain'
+import { resolvePack } from '@shared/packRegistry'
 import type { EngineContext } from '../context'
 import { parseJsonLoose } from '../../llm'
-import { evolutionPrompt, SYSTEM_PREAMBLE } from '../prompts'
+import { evolutionPrompt, systemPreamble } from '../prompts'
 import { coerceDesign } from './util'
 
 /**
- * Evolution agent. Refines top designs by producing NEW designs (it never
- * mutates an existing one — each new design must re-earn its rank in the
+ * Evolution agent. Refines top hypotheses by producing NEW hypotheses (it never
+ * mutates an existing one — each new one must re-earn its rank in the
  * tournament). Implements the paper's six refinement strategies.
  */
 export class EvolutionAgent {
@@ -14,31 +15,34 @@ export class EvolutionAgent {
 
   async evolve(
     campaign: Campaign,
-    parents: StrainDesign[],
+    parents: Hypothesis[],
     strategy: EvolutionStrategy,
     cycle: number,
     metaFeedback?: string,
     empiricalPriors?: string
-  ): Promise<StrainDesign | null> {
+  ): Promise<Hypothesis | null> {
     if (!parents.length) return null
 
-    let child: StrainDesign | null
+    let child: Hypothesis | null
     let failureMeta: Record<string, unknown> = { strategy }
     let literature: string | undefined
     if (strategy === 'grounding-enhancement' && this.ctx.deepResearch.available) {
       const finding = await this.ctx.deepResearch.search([
-        { query: `improve ${parents[0].title} ${campaign.productTarget}`, researchGoal: campaign.goal }
+        {
+          query: resolvePack(campaign.packId).literatureQuery(campaign, 'evolution', parents[0]),
+          researchGoal: campaign.goal
+        }
       ])
       if (finding) literature = finding.summary
     }
-    // Surface any wet-lab results on the parents so refinement is grounded in
+    // Surface any measured results on the parents so refinement is grounded in
     // what was actually observed (essential for the empirical-refinement strategy).
     const parentResults = parents.flatMap((p) =>
       this.ctx.store.getResultsForDesign(campaign.id, p.id)
     )
     const res = await this.ctx.llm.complete({
       agent: 'evolution',
-      system: SYSTEM_PREAMBLE,
+      system: systemPreamble(campaign),
       prompt: evolutionPrompt(campaign, parents, strategy, {
         literature,
         metaFeedback,

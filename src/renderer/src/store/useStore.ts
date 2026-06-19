@@ -3,9 +3,12 @@ import type {
   AppSettings,
   Campaign,
   CampaignSnapshot,
-  StrainDesign
+  Hypothesis
 } from '@shared/domain'
+import type { DomainPack } from '@shared/domainpack'
+import { resolvePack } from '@shared/packRegistry'
 import type { EngineEvent } from '@shared/ipc'
+import '@domains/index' // register built-in domain packs in the renderer
 
 export type ViewKey =
   | 'dashboard'
@@ -151,7 +154,21 @@ export const useStore = create<State>((set, get) => ({
   }
 }))
 
-function upsert(list: StrainDesign[], item: StrainDesign): StrainDesign[] {
+/**
+ * The active domain pack for the selected campaign (falls back to the default
+ * pack when nothing is selected). Drives all vocabulary/labels in the UI.
+ */
+export function usePack(): DomainPack {
+  return useStore((s) => resolvePack(s.snapshot?.campaign.packId ?? s.settings?.activePackId))
+}
+
+/** Non-hook accessor for the active pack (for use outside React render). */
+export function activePack(): DomainPack {
+  const s = useStore.getState()
+  return resolvePack(s.snapshot?.campaign.packId ?? s.settings?.activePackId)
+}
+
+function upsert(list: Hypothesis[], item: Hypothesis): Hypothesis[] {
   const idx = list.findIndex((d) => d.id === item.id)
   if (idx === -1) return [...list, item]
   const copy = list.slice()

@@ -2,14 +2,16 @@ import type {
   AgentRole,
   Campaign,
   ExperimentalResult,
+  Hypothesis,
   MetaReview,
-  ResearchOverviewArea,
-  StrainDesign
+  ResearchOverviewArea
 } from '@shared/domain'
-import { compareDesigns, RESULT_OUTCOME_LABELS } from '@shared/domain'
+import { compareDesigns } from '@shared/domain'
+import { labelFor } from '@shared/domainpack'
+import { resolvePack } from '@shared/packRegistry'
 import type { EngineContext } from '../context'
 import { parseJsonLoose } from '../../llm'
-import { metaReviewPrompt, SYSTEM_PREAMBLE } from '../prompts'
+import { metaReviewPrompt, systemPreamble } from '../prompts'
 import { calibrationNote } from '../learn/Calibration'
 
 /** True when a meta-review carries no usable research overview (parse/content failure). */
@@ -36,8 +38,12 @@ function titleMatches(designTitle: string, candidate: string): boolean {
   return shared.length >= 2
 }
 
-/** Short, model-facing summary of recorded wet-lab results, keyed to design titles. */
-function summarizeResults(results: ExperimentalResult[], designs: StrainDesign[]): string {
+/** Short, model-facing summary of recorded measured results, keyed to titles. */
+function summarizeResults(
+  results: ExperimentalResult[],
+  designs: Hypothesis[],
+  outcomes: { id: string; label: string }[]
+): string {
   const titles = new Map(designs.map((d) => [d.id, d.title]))
   const recorded = results.filter((r) => r.status === 'recorded')
   if (!recorded.length) return ''
@@ -50,7 +56,7 @@ function summarizeResults(results: ExperimentalResult[], designs: StrainDesign[]
               ((r.measuredValue - r.baselineValue) / r.baselineValue) * 100
             )}%)`
           : ''
-      return `- ${titles.get(r.designId) ?? 'design'}: ${RESULT_OUTCOME_LABELS[r.outcome]}${delta} — ${r.observations}`
+      return `- ${titles.get(r.designId) ?? 'hypothesis'}: ${labelFor(outcomes, r.outcome)}${delta} — ${r.observations}`
     })
     .join('\n')
 }
@@ -72,7 +78,11 @@ export class MetaReviewAgent {
       .slice(-30)
       .map((r) => `[${r.type}/${r.verdict}] ${r.narrative}`)
     const matchPatterns = (snapshot?.matches ?? []).slice(-30).map((m) => m.rationale)
-    const resultsSummary = summarizeResults(snapshot?.results ?? [], designs)
+    const resultsSummary = summarizeResults(
+      snapshot?.results ?? [],
+      designs,
+      resolvePack(campaign.packId).outcomes
+    )
     const calNote = calibrationNote(this.ctx.store.latestCalibration(campaign.id))
     return this.llm(campaign, cycle, top, reviewExcerpts, matchPatterns, calNote, resultsSummary)
   }
@@ -89,7 +99,7 @@ export class MetaReviewAgent {
     return meta
   }
 
-  private resolveAreaIds(area: any, designs: StrainDesign[]): ResearchOverviewArea {
+  private resolveAreaIds(area: any, designs: Hypothesis[]): ResearchOverviewArea {
     // Map the area back to concrete designs. Preferred signal is an explicit
     // 1-based reference into the numbered TOP-RANKED DESIGNS list (deterministic);
     // we also accept titles (in either field) and match them fuzzily, so the
@@ -126,7 +136,7 @@ export class MetaReviewAgent {
   private async llm(
     campaign: Campaign,
     cycle: number,
-    top: StrainDesign[],
+    top: Hypothesis[],
     reviewExcerpts: string[],
     matchPatterns: string[],
     calNote: string,
@@ -134,7 +144,7 @@ export class MetaReviewAgent {
   ): Promise<MetaReview> {
     const res = await this.ctx.llm.complete({
       agent: 'meta-review',
-      system: SYSTEM_PREAMBLE,
+      system: systemPreamble(campaign),
       prompt: metaReviewPrompt(campaign, top, reviewExcerpts, matchPatterns, calNote, resultsSummary),
       effort: 'high',
       think: true,

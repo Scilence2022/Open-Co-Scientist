@@ -57,7 +57,7 @@ export class McpConnection {
     const transport = new StreamableHTTPClientTransport(new URL(this.config.url), {
       requestInit: { headers }
     })
-    const client = new Client({ name: 'strain-co-scientist', version: '0.1.0' })
+    const client = new Client({ name: 'open-co-scientist', version: '0.1.0' })
     await client.connect(transport)
     const tools = await client.listTools()
     this.toolNames = tools.tools.map((t) => t.name)
@@ -115,18 +115,48 @@ function textOf(res: any): string {
     .join('\n')
 }
 
-/** Owns both MCP connections and lets the engine reconfigure them live. */
+/** A pack-declared tool the manager should hold a connection for. */
+export interface ToolDef {
+  id: string
+  label: string
+  defaultConfig: McpServerConfig
+}
+
+const DEEP_RESEARCH_DEFAULT: McpServerConfig = { enabled: false, url: 'http://127.0.0.1:3000/api/mcp' }
+
+/**
+ * Owns the shared deep-research connection plus one connection per pack-declared
+ * tool (keyed by tool id), and lets the engine reconfigure them live. Server
+ * configs are keyed by id in {@link McpServerConfig} settings; `deepResearch` is
+ * the reserved core key.
+ */
 export class McpManager {
   readonly deepResearch: McpConnection
-  readonly codexomics: McpConnection
+  private toolConns = new Map<string, McpConnection>()
 
-  constructor(deepResearchCfg: McpServerConfig, codexomicsCfg: McpServerConfig) {
-    this.deepResearch = new McpConnection('Deep Research', deepResearchCfg)
-    this.codexomics = new McpConnection('CodeXomics', codexomicsCfg)
+  constructor(mcp: Record<string, McpServerConfig>, tools: ToolDef[]) {
+    this.deepResearch = new McpConnection('Deep Research', mcp.deepResearch ?? DEEP_RESEARCH_DEFAULT)
+    for (const t of tools) {
+      this.toolConns.set(t.id, new McpConnection(t.label, mcp[t.id] ?? t.defaultConfig))
+    }
   }
 
-  update(deepResearchCfg: McpServerConfig, codexomicsCfg: McpServerConfig): void {
-    this.deepResearch.updateConfig(deepResearchCfg)
-    this.codexomics.updateConfig(codexomicsCfg)
+  update(mcp: Record<string, McpServerConfig>, tools: ToolDef[]): void {
+    this.deepResearch.updateConfig(mcp.deepResearch ?? DEEP_RESEARCH_DEFAULT)
+    for (const t of tools) {
+      const existing = this.toolConns.get(t.id)
+      if (existing) existing.updateConfig(mcp[t.id] ?? t.defaultConfig)
+      else this.toolConns.set(t.id, new McpConnection(t.label, mcp[t.id] ?? t.defaultConfig))
+    }
+  }
+
+  /** A pack tool connection by tool id. */
+  tool(id: string): McpConnection | undefined {
+    return this.toolConns.get(id)
+  }
+
+  /** Resolve any server connection by its settings id (`deepResearch` or a tool id). */
+  byServerId(id: string): McpConnection | undefined {
+    return id === 'deepResearch' ? this.deepResearch : this.toolConns.get(id)
   }
 }

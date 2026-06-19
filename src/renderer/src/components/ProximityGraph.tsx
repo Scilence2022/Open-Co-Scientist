@@ -7,7 +7,7 @@ import {
   forceSimulation,
   type SimulationNodeDatum
 } from 'd3-force'
-import type { StrainDesign } from '@shared/domain'
+import type { Hypothesis } from '@shared/domain'
 
 interface Node extends SimulationNodeDatum {
   id: string
@@ -96,7 +96,7 @@ export function ProximityGraph({
   selectedId,
   onSelect
 }: {
-  designs: StrainDesign[]
+  designs: Hypothesis[]
   selectedId: string | null
   onSelect: (id: string) => void
 }): JSX.Element {

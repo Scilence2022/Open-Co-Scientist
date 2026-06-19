@@ -1,16 +1,10 @@
 import { useState } from 'react'
-import { useStore } from '../store/useStore'
+import { useStore, usePack } from '../store/useStore'
 import { DesignStatusBadge, Empty, EvidenceBadge } from '../components/ui'
 import { RecordResultForm } from '../components/Results'
 import { IconExpert, IconPlus, IconClose, IconFlag } from '../components/Icons'
-import {
-  compareDesigns,
-  CRITERION_LABELS,
-  INTERVENTION_LABELS,
-  type CriterionKey,
-  type Intervention,
-  type InterventionType
-} from '@shared/domain'
+import { compareDesigns, type Method } from '@shared/domain'
+import type { DomainPack } from '@shared/domainpack'
 
 export function ExpertView(): JSX.Element {
   const { snapshot, refreshSnapshot } = useStore()
@@ -31,7 +25,7 @@ export function ExpertView(): JSX.Element {
       </div>
 
       <RefineGoal campaignId={campaign.id} current={campaign.goal} onDone={refreshSnapshot} />
-      <ContributeDesign campaignId={campaign.id} chassisDefault={snapshot.designs[0]?.chassis ?? ''} onDone={refreshSnapshot} />
+      <ContributeDesign campaignId={campaign.id} systemDefault={snapshot.designs[0]?.system ?? ''} onDone={refreshSnapshot} />
       <ProvideReview onDone={refreshSnapshot} />
       <RecordResult campaignId={campaign.id} onDone={refreshSnapshot} terminal={terminal} />
 
@@ -196,25 +190,23 @@ function RecordResult({
   )
 }
 
-const IV_TYPES = Object.keys(INTERVENTION_LABELS) as InterventionType[]
-
 function ContributeDesign({
   campaignId,
-  chassisDefault,
+  systemDefault,
   onDone
 }: {
   campaignId: string
-  chassisDefault: string
+  systemDefault: string
   onDone: () => void
 }): JSX.Element {
+  const pack = usePack()
+  const firstType = pack.methodTypes[0]?.id ?? 'other'
   const [title, setTitle] = useState('')
   const [summary, setSummary] = useState('')
-  const [chassis, setChassis] = useState(chassisDefault)
+  const [system, setSystem] = useState(systemDefault)
   const [mechanism, setMechanism] = useState('')
   const [predictedEffect, setPredictedEffect] = useState('')
-  const [interventions, setInterventions] = useState<Intervention[]>([
-    { type: 'knockout', targets: [], details: '' }
-  ])
+  const [methods, setMethods] = useState<Method[]>([{ type: firstType, targets: [], details: '' }])
   const [busy, setBusy] = useState(false)
 
   const valid = title.trim() && summary.trim()
@@ -225,27 +217,25 @@ function ContributeDesign({
       campaignId,
       title: title.trim(),
       summary: summary.trim(),
-      chassis: chassis.trim(),
+      system: system.trim(),
       mechanism: mechanism.trim(),
       predictedEffect: predictedEffect.trim(),
-      interventions: interventions
-        .filter((iv) => iv.details.trim() || iv.targets.length)
-        .map((iv) => ({ ...iv, targets: iv.targets }))
+      methods: methods.filter((m) => m.details.trim() || m.targets.length)
     })
     setTitle('')
     setSummary('')
     setMechanism('')
     setPredictedEffect('')
-    setInterventions([{ type: 'knockout', targets: [], details: '' }])
+    setMethods([{ type: firstType, targets: [], details: '' }])
     setBusy(false)
     onDone()
   }
 
   return (
     <div className="card">
-      <div className="section-title">Contribute your own design</div>
+      <div className="section-title">Contribute your own {pack.labels.hypothesis.toLowerCase()}</div>
       <p className="faint" style={{ fontSize: 'var(--fs-sm)', marginTop: 0 }}>
-        Your design enters the tournament alongside the system's and can be combined by the Evolution agent.
+        Your {pack.labels.hypothesis.toLowerCase()} enters the tournament alongside the system's and can be combined by the Evolution agent.
       </p>
       <div className="field">
         <label>Title</label>
@@ -257,37 +247,37 @@ function ContributeDesign({
       </div>
       <div className="grid grid-2">
         <div className="field">
-          <label>Chassis</label>
-          <input value={chassis} onChange={(e) => setChassis(e.target.value)} />
+          <label>{pack.labels.system}</label>
+          <input value={system} onChange={(e) => setSystem(e.target.value)} />
         </div>
       </div>
 
-      <label style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>Interventions</label>
+      <label style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>{pack.labels.methodPlural}</label>
       <div className="col gap-sm" style={{ margin: '6px 0 12px' }}>
-        {interventions.map((iv, i) => (
+        {methods.map((m, i) => (
           <div key={i} className="row gap-sm">
             <select
-              value={iv.type}
+              value={m.type}
               style={{ width: 150 }}
-              onChange={(e) => updateIv(setInterventions, i, { type: e.target.value as InterventionType })}
+              onChange={(e) => updateMethod(setMethods, i, { type: e.target.value })}
             >
-              {IV_TYPES.map((t) => (
-                <option key={t} value={t}>{INTERVENTION_LABELS[t]}</option>
+              {pack.methodTypes.map((t) => (
+                <option key={t.id} value={t.id}>{t.label}</option>
               ))}
             </select>
             <input
               placeholder="targets (comma-sep)"
-              value={iv.targets.join(', ')}
-              onChange={(e) => updateIv(setInterventions, i, { targets: e.target.value.split(',').map((x) => x.trim()).filter(Boolean) })}
+              value={m.targets.join(', ')}
+              onChange={(e) => updateMethod(setMethods, i, { targets: e.target.value.split(',').map((x) => x.trim()).filter(Boolean) })}
               style={{ width: 150 }}
             />
             <input
               placeholder="details"
-              value={iv.details}
-              onChange={(e) => updateIv(setInterventions, i, { details: e.target.value })}
+              value={m.details}
+              onChange={(e) => updateMethod(setMethods, i, { details: e.target.value })}
             />
-            {interventions.length > 1 && (
-              <button className="btn btn-icon btn-ghost" onClick={() => setInterventions(interventions.filter((_, k) => k !== i))}>
+            {methods.length > 1 && (
+              <button className="btn btn-icon btn-ghost" onClick={() => setMethods(methods.filter((_, k) => k !== i))}>
                 <IconClose size={14} />
               </button>
             )}
@@ -296,18 +286,18 @@ function ContributeDesign({
         <button
           className="btn btn-sm btn-ghost"
           style={{ alignSelf: 'flex-start' }}
-          onClick={() => setInterventions([...interventions, { type: 'overexpression', targets: [], details: '' }])}
+          onClick={() => setMethods([...methods, { type: firstType, targets: [], details: '' }])}
         >
-          <IconPlus size={13} /> Add intervention
+          <IconPlus size={13} /> Add {pack.labels.method.toLowerCase()}
         </button>
       </div>
 
       <div className="field">
-        <label>Mechanism</label>
+        <label>{pack.labels.mechanism}</label>
         <textarea rows={2} value={mechanism} onChange={(e) => setMechanism(e.target.value)} />
       </div>
       <div className="field">
-        <label>Predicted effect</label>
+        <label>{pack.labels.predictedEffect}</label>
         <textarea rows={2} value={predictedEffect} onChange={(e) => setPredictedEffect(e.target.value)} />
       </div>
       <div className="row">
@@ -320,21 +310,22 @@ function ContributeDesign({
   )
 }
 
-function updateIv(
-  setter: React.Dispatch<React.SetStateAction<Intervention[]>>,
+function updateMethod(
+  setter: React.Dispatch<React.SetStateAction<Method[]>>,
   index: number,
-  patch: Partial<Intervention>
+  patch: Partial<Method>
 ): void {
-  setter((prev) => prev.map((iv, i) => (i === index ? { ...iv, ...patch } : iv)))
+  setter((prev) => prev.map((m, i) => (i === index ? { ...m, ...patch } : m)))
 }
 
 function ProvideReview({ onDone }: { onDone: () => void }): JSX.Element {
   const { snapshot } = useStore()
+  const pack = usePack()
   const active = snapshot?.designs.filter((d) => d.status !== 'rejected') ?? []
   const [designId, setDesignId] = useState('')
   const [verdict, setVerdict] = useState<'pass' | 'revise' | 'reject'>('pass')
   const [narrative, setNarrative] = useState('')
-  const [scores, setScores] = useState<Partial<Record<CriterionKey, number>>>({})
+  const [scores, setScores] = useState<Partial<Record<string, number>>>({})
   const [busy, setBusy] = useState(false)
 
   const submit = async () => {
@@ -382,17 +373,17 @@ function ProvideReview({ onDone }: { onDone: () => void }): JSX.Element {
       </div>
       <label style={{ fontSize: 'var(--fs-sm)', color: 'var(--text-muted)' }}>Scores (optional)</label>
       <div className="row wrap gap-md" style={{ margin: '6px 0 12px' }}>
-        {(Object.keys(CRITERION_LABELS) as CriterionKey[]).map((k) => (
-          <div key={k} className="col" style={{ width: 110 }}>
-            <span className="faint" style={{ fontSize: 'var(--fs-xs)' }}>{CRITERION_LABELS[k]}</span>
+        {pack.criteria.map((c) => (
+          <div key={c.id} className="col" style={{ width: 110 }}>
+            <span className="faint" style={{ fontSize: 'var(--fs-xs)' }}>{c.label}</span>
             <input
               type="number"
               min={0}
               max={10}
-              value={scores[k] ?? ''}
+              value={scores[c.id] ?? ''}
               placeholder="–"
               onChange={(e) =>
-                setScores((s) => ({ ...s, [k]: e.target.value === '' ? undefined : Math.max(0, Math.min(10, +e.target.value)) }))
+                setScores((s) => ({ ...s, [c.id]: e.target.value === '' ? undefined : Math.max(0, Math.min(10, +e.target.value)) }))
               }
             />
           </div>

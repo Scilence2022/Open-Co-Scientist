@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useStore } from '../store/useStore'
+import { useStore, usePack } from '../store/useStore'
 import { Empty } from '../components/ui'
 import { IconTournament, IconChevron } from '../components/Icons'
 import { TournamentConfigEditor } from '../components/TournamentConfigEditor'
@@ -7,6 +7,7 @@ import { DEFAULT_TOURNAMENT_CONFIG, type TournamentConfig } from '@shared/domain
 
 export function TournamentView(): JSX.Element {
   const { snapshot, refreshSnapshot } = useStore()
+  const pack = usePack()
   const [open, setOpen] = useState<string | null>(null)
   const [cfgOpen, setCfgOpen] = useState(false)
   const [draft, setDraft] = useState<TournamentConfig | null>(null)
@@ -55,7 +56,7 @@ export function TournamentView(): JSX.Element {
             Re-weighting replays the Elo ladder from each match&apos;s stored per-criterion scores —
             no matches are re-run. Scheduling changes take effect on the next cycle.
           </div>
-          <TournamentConfigEditor value={draft ?? liveCfg} onChange={setDraft} />
+          <TournamentConfigEditor value={draft ?? liveCfg} onChange={setDraft} pack={pack} />
           <div className="row" style={{ marginTop: 12 }}>
             <span className="spacer" />
             <button className="btn" disabled={applying} onClick={() => { setDraft(structuredClone(liveCfg)); setCfgOpen(false) }}>

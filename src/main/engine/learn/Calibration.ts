@@ -1,9 +1,8 @@
 import type {
   CalibrationProfile,
   ExperimentalResult,
-  InterventionType,
-  QuantPrediction,
-  StrainDesign
+  Hypothesis,
+  QuantPrediction
 } from '@shared/domain'
 
 /**
@@ -16,9 +15,9 @@ import type {
  * are discounted where the model has historically been wrong.
  */
 
-/** A matched (predicted, measured) pair for one design. */
+/** A matched (predicted, measured) pair for one hypothesis. */
 interface Pair {
-  design: StrainDesign
+  design: Hypothesis
   predicted: number // signed relative change vs baseline
   measured: number // signed relative change vs baseline
   confidence?: number
@@ -48,7 +47,7 @@ export function signedMeasured(r: ExperimentalResult): number | undefined {
 }
 
 /** Build the (prediction, measurement) pairs that are actually comparable. */
-function buildPairs(designs: StrainDesign[], results: ExperimentalResult[]): Pair[] {
+function buildPairs(designs: Hypothesis[], results: ExperimentalResult[]): Pair[] {
   const pairs: Pair[] = []
   const byId = new Map(designs.map((d) => [d.id, d]))
   // Most-recent recorded result per design that has a computable measured change.
@@ -128,7 +127,7 @@ export function computeCalibration(
   campaignId: string,
   cycle: number,
   at: number,
-  designs: StrainDesign[],
+  designs: Hypothesis[],
   results: ExperimentalResult[]
 ): CalibrationProfile | null {
   const pairs = buildPairs(designs, results)
@@ -147,20 +146,20 @@ export function computeCalibration(
     ? mean(withConf.map((p) => ((p.confidence as number) - p.hit) ** 2))
     : undefined
 
-  // Per-intervention-type bias: attribute each design's error to every
-  // intervention type it uses, then average within each type.
-  const byType = new Map<InterventionType, number[]>()
+  // Per-method-type bias: attribute each hypothesis's error to every method
+  // type it uses, then average within each type.
+  const byType = new Map<string, number[]>()
   for (const p of pairs) {
     const err = p.predicted - p.measured
-    const types = new Set(p.design.interventions.map((iv) => iv.type))
+    const types = new Set(p.design.methods.map((m) => m.type))
     for (const t of types) {
       const arr = byType.get(t) ?? []
       arr.push(err)
       byType.set(t, arr)
     }
   }
-  const biasByInterventionType: Partial<Record<InterventionType, number>> = {}
-  for (const [t, errs] of byType) biasByInterventionType[t] = round(mean(errs))
+  const biasByMethodType: Record<string, number> = {}
+  for (const [t, errs] of byType) biasByMethodType[t] = round(mean(errs))
 
   return {
     campaignId,
@@ -171,7 +170,7 @@ export function computeCalibration(
     meanAbsError: round(meanAbsError),
     spearman: round(spearman),
     brier: brier === undefined ? undefined : round(brier),
-    biasByInterventionType
+    biasByMethodType
   }
 }
 
@@ -191,13 +190,13 @@ export function calibrationNote(profile: CalibrationProfile | undefined): string
       )} percentage points on average — adjust predicted magnitudes accordingly.`
     )
   }
-  const worst = Object.entries(profile.biasByInterventionType)
+  const worst = Object.entries(profile.biasByMethodType)
     .filter(([, v]) => Math.abs(v as number) >= 0.1)
     .sort((a, b) => Math.abs(b[1] as number) - Math.abs(a[1] as number))
     .slice(0, 3)
   for (const [type, v] of worst) {
     lines.push(
-      `${type} interventions are ${
+      `${type} methods are ${
         (v as number) > 0 ? 'over' : 'under'
       }-predicted by ~${Math.round(Math.abs(v as number) * 100)} pts.`
     )

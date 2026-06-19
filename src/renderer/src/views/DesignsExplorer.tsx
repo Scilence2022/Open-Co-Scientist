@@ -1,23 +1,22 @@
 import { useMemo, useState } from 'react'
-import { useStore } from '../store/useStore'
+import { useStore, usePack } from '../store/useStore'
 import { Sparkline } from '../components/Charts'
 import { DesignStatusBadge, Empty, EvidenceBadge, OriginBadge, VerdictBadge } from '../components/ui'
 import { RecordResultForm, ResultsList } from '../components/Results'
 import { IconBeaker, IconClose, IconFlag } from '../components/Icons'
 import {
   compareDesigns,
-  CRITERION_LABELS,
   EVOLUTION_STRATEGY_LABELS,
-  INTERVENTION_LABELS,
   REVIEW_TYPE_LABELS,
-  type CriterionKey,
-  type StrainDesign
+  type Hypothesis
 } from '@shared/domain'
+import { labelFor } from '@shared/domainpack'
 
 type Filter = 'all' | 'active' | 'flagged' | 'rejected'
 
 export function DesignsExplorer(): JSX.Element {
   const { snapshot, selectedDesignId, openDesign } = useStore()
+  const pack = usePack()
   const [filter, setFilter] = useState<Filter>('active')
 
   const designs = useMemo(() => {
@@ -41,7 +40,7 @@ export function DesignsExplorer(): JSX.Element {
   return (
     <div className="page">
       <div className="row" style={{ marginBottom: 16 }}>
-        <h2 style={{ fontSize: 'var(--fs-xl)' }}>Designs</h2>
+        <h2 style={{ fontSize: 'var(--fs-xl)' }}>{pack.labels.hypothesisPlural}</h2>
         <span className="spacer" />
         <div className="row gap-sm">
           {(['active', 'all', 'flagged', 'rejected'] as Filter[]).map((f) => (
@@ -74,15 +73,18 @@ export function DesignsExplorer(): JSX.Element {
       </div>
 
       {designs.length === 0 ? (
-        <Empty title="No designs in this view" hint="Run the campaign to generate and rank strain designs." />
+        <Empty
+          title={`No ${pack.labels.hypothesisPlural.toLowerCase()} in this view`}
+          hint={`Run the campaign to generate and rank ${pack.labels.hypothesisPlural.toLowerCase()}.`}
+        />
       ) : (
         <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
           <table className="table">
             <thead>
               <tr>
                 <th style={{ width: 40 }}>#</th>
-                <th>Design</th>
-                <th>Interventions</th>
+                <th>{pack.labels.hypothesis}</th>
+                <th>{pack.labels.methodPlural}</th>
                 <th>Origin</th>
                 <th className="num">Elo</th>
                 <th style={{ width: 100 }}>Trend</th>
@@ -107,10 +109,10 @@ export function DesignsExplorer(): JSX.Element {
                   </td>
                   <td>
                     <div className="row wrap gap-sm">
-                      {d.interventions.slice(0, 2).map((iv, k) => (
-                        <span key={k} className="intervention-tag">{INTERVENTION_LABELS[iv.type]}</span>
+                      {d.methods.slice(0, 2).map((m, k) => (
+                        <span key={k} className="intervention-tag">{labelFor(pack.methodTypes, m.type)}</span>
                       ))}
-                      {d.interventions.length > 2 && <span className="faint">+{d.interventions.length - 2}</span>}
+                      {d.methods.length > 2 && <span className="faint">+{d.methods.length - 2}</span>}
                     </div>
                   </td>
                   <td>
@@ -142,13 +144,14 @@ export function DesignsExplorer(): JSX.Element {
   )
 }
 
-export function DesignDrawer({ design, onClose }: { design: StrainDesign; onClose: () => void }): JSX.Element {
+export function DesignDrawer({ design, onClose }: { design: Hypothesis; onClose: () => void }): JSX.Element {
   const { snapshot, refreshSnapshot } = useStore()
+  const pack = usePack()
   const reviews = snapshot?.reviews.filter((r) => r.designId === design.id) ?? []
   const results = snapshot?.results?.filter((r) => r.designId === design.id) ?? []
   const parents = (design.lineage.parentIds ?? [])
     .map((id) => snapshot?.designs.find((d) => d.id === id))
-    .filter(Boolean) as StrainDesign[]
+    .filter(Boolean) as Hypothesis[]
 
   const toggleFlag = () => window.api.flagDesign(design.id, design.status !== 'flagged')
 
@@ -166,7 +169,7 @@ export function DesignDrawer({ design, onClose }: { design: StrainDesign; onClos
             </div>
             <h3 style={{ fontSize: 'var(--fs-lg)' }}>{design.title}</h3>
           </div>
-          <button className="btn btn-sm" onClick={toggleFlag} title="Flag for wet-lab">
+          <button className="btn btn-sm" onClick={toggleFlag} title={`Flag for ${pack.labels.validationVenue}`}>
             <IconFlag size={14} /> {design.status === 'flagged' ? 'Unflag' : 'Flag'}
           </button>
           <button className="btn btn-icon btn-ghost" onClick={onClose}>
@@ -180,32 +183,32 @@ export function DesignDrawer({ design, onClose }: { design: StrainDesign; onClos
           </div>
 
           <div className="detail-block">
-            <h4>Interventions</h4>
+            <h4>{pack.labels.methodPlural}</h4>
             <div className="col gap-sm">
-              {design.interventions.map((iv, i) => (
+              {design.methods.map((m, i) => (
                 <div key={i} className="lineage-node">
                   <div className="row gap-sm" style={{ marginBottom: 4 }}>
-                    <span className="badge accent">{INTERVENTION_LABELS[iv.type]}</span>
-                    <span className="mono">{iv.targets.join(', ')}</span>
+                    <span className="badge accent">{labelFor(pack.methodTypes, m.type)}</span>
+                    <span className="mono">{m.targets.join(', ')}</span>
                   </div>
-                  <div className="muted">{iv.details}</div>
+                  <div className="muted">{m.details}</div>
                 </div>
               ))}
-              {design.interventions.length === 0 && <span className="faint">None specified.</span>}
+              {design.methods.length === 0 && <span className="faint">None specified.</span>}
             </div>
           </div>
 
           <div className="detail-block">
-            <h4>Mechanism</h4>
+            <h4>{pack.labels.mechanism}</h4>
             <p>{design.mechanism || '—'}</p>
           </div>
 
           <div className="detail-block">
-            <h4>Predicted effect</h4>
+            <h4>{pack.labels.predictedEffect}</h4>
             <p>{design.predictedEffect || '—'}</p>
             {design.quantPrediction && typeof design.quantPrediction.relativeChange === 'number' && (
               <div className="faint" style={{ fontSize: 'var(--fs-sm)' }}>
-                Quantified: {design.quantPrediction.direction} {design.quantPrediction.metric} by ~
+                Quantified: {design.quantPrediction.direction} {labelFor(pack.metrics, design.quantPrediction.metric)} by ~
                 {Math.round(Math.abs(design.quantPrediction.relativeChange) * 100)}%
                 {typeof design.quantPrediction.confidence === 'number'
                   ? ` (confidence ${design.quantPrediction.confidence})`
@@ -214,14 +217,14 @@ export function DesignDrawer({ design, onClose }: { design: StrainDesign; onClos
             )}
           </div>
 
-          {design.experimentalPlan.length > 0 && (
+          {design.plan.length > 0 && (
             <div className="detail-block">
-              <h4>DBTL experimental plan</h4>
+              <h4>{pack.labels.planSectionTitle}</h4>
               <div className="col gap-sm">
-                {design.experimentalPlan.map((s, i) => (
+                {design.plan.map((s, i) => (
                   <div key={i} className="row gap-sm" style={{ alignItems: 'flex-start' }}>
                     <span className="badge blue" style={{ textTransform: 'capitalize', minWidth: 56, justifyContent: 'center' }}>
-                      {s.phase}
+                      {labelFor(pack.planPhases, s.phase)}
                     </span>
                     <span style={{ flex: 1 }}>{s.description}</span>
                   </div>
@@ -230,18 +233,18 @@ export function DesignDrawer({ design, onClose }: { design: StrainDesign; onClos
             </div>
           )}
 
-          {design.constructSuggestions.length > 0 && (
+          {design.artifacts.length > 0 && (
             <div className="detail-block">
-              <h4>Construct suggestions</h4>
+              <h4>Artifacts</h4>
               <div className="col gap-sm">
-                {design.constructSuggestions.map((c, i) => (
+                {design.artifacts.map((c, i) => (
                   <div key={i} className="lineage-node">
                     <div className="row">
                       <b>{c.label}</b>
                       <span className="spacer" />
                       <span className="badge">{c.source}</span>
                     </div>
-                    {c.sequence && <div className="mono" style={{ marginTop: 4, wordBreak: 'break-all' }}>{c.sequence}</div>}
+                    {c.content && <div className="mono" style={{ marginTop: 4, wordBreak: 'break-all' }}>{c.content}</div>}
                     <div className="muted" style={{ marginTop: 3 }}>{c.detail}</div>
                   </div>
                 ))}
@@ -296,9 +299,9 @@ export function DesignDrawer({ design, onClose }: { design: StrainDesign; onClos
                     </div>
                     {Object.keys(r.scores).length > 0 && (
                       <div className="row wrap gap-sm" style={{ marginBottom: 6 }}>
-                        {(Object.entries(r.scores) as [CriterionKey, number][]).map(([k, v]) => (
-                          <span key={k} className="badge" title={CRITERION_LABELS[k]}>
-                            {CRITERION_LABELS[k].slice(0, 4)} {v}
+                        {(Object.entries(r.scores) as [string, number][]).map(([k, v]) => (
+                          <span key={k} className="badge" title={labelFor(pack.criteria, k)}>
+                            {labelFor(pack.criteria, k).slice(0, 4)} {v}
                           </span>
                         ))}
                       </div>
@@ -311,7 +314,7 @@ export function DesignDrawer({ design, onClose }: { design: StrainDesign; onClos
           </div>
 
           <div className="detail-block">
-            <h4>Wet-lab results ({results.length})</h4>
+            <h4>{pack.labels.measuredResults} ({results.length})</h4>
             <ResultsList results={results} onChanged={refreshSnapshot} />
             <div style={{ marginTop: 12 }}>
               <div className="section-title">Record a result</div>

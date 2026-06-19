@@ -1,15 +1,17 @@
 import type {
   Campaign,
-  DesignStatus,
+  HypothesisStatus,
   EvolutionStrategy,
   ExperimentalResult,
-  StrainDesign,
+  Hypothesis,
   SystemStatistics,
   AgentRole,
   ReviewType,
   TournamentConfig
 } from '@shared/domain'
-import { compareDesigns, DEFAULT_TOURNAMENT_CONFIG, RESULT_OUTCOME_LABELS } from '@shared/domain'
+import { compareDesigns, DEFAULT_TOURNAMENT_CONFIG } from '@shared/domain'
+import { labelFor } from '@shared/domainpack'
+import { resolvePack } from '@shared/packRegistry'
 import type { EngineContext } from './context'
 import { TaskQueue, type AgentTask } from './TaskQueue'
 import { GenerationAgent } from './agents/GenerationAgent'
@@ -18,7 +20,7 @@ import { RankingAgent } from './agents/RankingAgent'
 import { ProximityAgent } from './agents/ProximityAgent'
 import { EvolutionAgent } from './agents/EvolutionAgent'
 import { MetaReviewAgent } from './agents/MetaReviewAgent'
-import { parseGoalPrompt, SYSTEM_PREAMBLE, type GenerationStrategy } from './prompts'
+import { parseGoalPrompt, systemPreamble, type GenerationStrategy } from './prompts'
 import { calibrationNote } from './learn/Calibration'
 import { parseJsonLoose } from '../llm'
 
@@ -77,7 +79,7 @@ export class Supervisor {
     try {
       const res = await this.ctx.llm.complete({
         agent: 'supervisor',
-        system: SYSTEM_PREAMBLE,
+        system: systemPreamble(campaign),
         prompt: parseGoalPrompt(campaign),
         effort: 'medium',
         maxTokens: 2000
@@ -90,7 +92,7 @@ export class Supervisor {
           ? parsed.derivedConstraints.map(String)
           : [],
         evaluationRubric: String(parsed.evaluationRubric ?? ''),
-        recommendedChassis: String(parsed.recommendedChassis ?? ''),
+        recommendedSystem: String(parsed.recommendedSystem ?? ''),
         parsedAt: Date.now()
       }
     } catch (err) {
@@ -305,20 +307,24 @@ export class Supervisor {
       })
     }
 
-    // 7) Construct augmentation for top designs lacking suggestions.
-    const needConstructs = active
-      .filter((d) => d.constructSuggestions.length === 0)
-      .sort((a, b) => b.elo - a.elo)
-      .slice(0, 1)
-    for (const d of needConstructs) {
-      tasks.push({
-        agent: 'reflection',
-        label: `Construct suggestions for ${truncate(d.title)}`,
-        cycle,
-        run: async () => {
-          await this.augmentConstructs(campaign, d)
-        }
-      })
+    // 7) Artifact augmentation (e.g. constructs/primers) for a top hypothesis
+    // lacking artifacts — only when the active pack declares a tool that can.
+    const canAugment = resolvePack(campaign.packId).tools.some((t) => t.augment)
+    if (canAugment) {
+      const needArtifacts = active
+        .filter((d) => d.artifacts.length === 0)
+        .sort((a, b) => b.elo - a.elo)
+        .slice(0, 1)
+      for (const d of needArtifacts) {
+        tasks.push({
+          agent: 'reflection',
+          label: `Artifact suggestions for ${truncate(d.title)}`,
+          cycle,
+          run: async () => {
+            await this.augmentArtifacts(campaign, d)
+          }
+        })
+      }
     }
 
     // 8) Meta-review every 4 cycles.
@@ -338,7 +344,7 @@ export class Supervisor {
 
   private reviewTask(
     campaign: Campaign,
-    design: StrainDesign,
+    design: Hypothesis,
     type: ReviewType,
     cycle: number,
     feedback?: string
@@ -350,7 +356,7 @@ export class Supervisor {
       run: async () => {
         const review = await this.reflection.review(campaign, design, type, feedback)
         if (type === 'initial') {
-          const next: DesignStatus = review.verdict === 'reject' ? 'rejected' : 'active'
+          const next: HypothesisStatus = review.verdict === 'reject' ? 'rejected' : 'active'
           design.status = next
           if (next === 'active' && design.eloHistory.length === 0) {
             design.eloHistory.push({ cycle, at: Date.now(), elo: design.elo })
@@ -363,11 +369,11 @@ export class Supervisor {
 
   /** Pick tournament pairs: newest + top designs, paired with a proximity-close partner. */
   private selectMatchPairs(
-    active: StrainDesign[],
+    active: Hypothesis[],
     cfg: TournamentConfig
-  ): [StrainDesign, StrainDesign, 'debate' | 'single-turn'][] {
+  ): [Hypothesis, Hypothesis, 'debate' | 'single-turn'][] {
     if (active.length < 2) return []
-    const pairs: [StrainDesign, StrainDesign, 'debate' | 'single-turn'][] = []
+    const pairs: [Hypothesis, Hypothesis, 'debate' | 'single-turn'][] = []
     const used = new Set<string>()
     const byElo = [...active].sort((a, b) => b.elo - a.elo)
     const byRecency = [...active].sort((a, b) => b.createdAt - a.createdAt)
@@ -395,33 +401,20 @@ export class Supervisor {
     return this.ctx.store.getCampaign(id)!
   }
 
-  private async augmentConstructs(campaign: Campaign, design: StrainDesign): Promise<void> {
-    const target = design.interventions.flatMap((i) => i.targets)[0] ?? design.title
-    if (!this.ctx.codexomics.available) {
-      design.constructSuggestions = [
-        {
-          label: `Forward primer for ${target}`,
-          detail: 'Anneal Tm ≈ 60°C; add 40 nt homology arms for recombineering.',
-          source: 'model'
-        },
-        {
-          label: `Reverse primer for ${target}`,
-          detail: 'Pair with the forward primer to amplify the edit/cassette.',
-          source: 'model'
-        }
-      ]
-    } else {
-      const primers = await this.ctx.codexomics.designPrimers(target)
-      if (primers && primers.length) {
-        design.constructSuggestions = primers.map((p) => ({
-          label: p.label,
-          detail: p.detail,
-          sequence: p.sequence,
-          source: 'codexomics'
-        }))
+  /** Enrich a hypothesis with pack-tool artifacts (e.g. CodeXomics primers). */
+  private async augmentArtifacts(campaign: Campaign, design: Hypothesis): Promise<void> {
+    const pack = resolvePack(campaign.packId)
+    for (const tool of pack.tools) {
+      if (!tool.augment) continue
+      const conn = this.ctx.toolConn(tool.id)
+      if (!conn?.enabled) continue
+      const patch = await tool.augment(design, conn)
+      if (patch?.artifacts?.length) {
+        design.artifacts = patch.artifacts
+        this.ctx.upsertDesign(design)
+        return
       }
     }
-    this.ctx.upsertDesign(design)
   }
 
   // -- Statistics & termination --------------------------------------------
@@ -431,7 +424,7 @@ export class Supervisor {
   }
 
   /** Non-rejected designs that carry at least one authoritative (recorded) result. */
-  private designsWithResults(campaign: Campaign): StrainDesign[] {
+  private designsWithResults(campaign: Campaign): Hypothesis[] {
     return this.ctx.store
       .getDesigns(campaign.id)
       .filter((d) => d.status !== 'rejected')
@@ -441,7 +434,7 @@ export class Supervisor {
   }
 
   /** Designs whose newest recorded result is newer than their newest calibration review. */
-  private designsNeedingCalibration(campaign: Campaign): StrainDesign[] {
+  private designsNeedingCalibration(campaign: Campaign): Hypothesis[] {
     const snap = this.ctx.store.getSnapshot(campaign.id)
     const latestResultAt = new Map<string, number>()
     for (const r of snap?.results ?? []) {
@@ -470,9 +463,10 @@ export class Supervisor {
     const results = this.ctx.store.getResults(campaign.id).filter((r) => r.status === 'recorded')
     if (!results.length) return undefined
     const designs = this.ctx.store.getDesigns(campaign.id)
-    const titleOf = (id: string): string => designs.find((d) => d.id === id)?.title ?? 'design'
+    const outcomes = resolvePack(campaign.packId).outcomes
+    const titleOf = (id: string): string => designs.find((d) => d.id === id)?.title ?? 'hypothesis'
     const line = (r: ExperimentalResult): string =>
-      `  - ${titleOf(r.designId)}: ${RESULT_OUTCOME_LABELS[r.outcome]} — ${r.observations}`
+      `  - ${titleOf(r.designId)}: ${labelFor(outcomes, r.outcome)} — ${r.observations}`
     const validated = results.filter((r) => r.outcome === 'confirmed' || r.outcome === 'partial')
     const failed = results.filter((r) => r.outcome === 'refuted' || r.outcome === 'build-failed')
     const lines: string[] = []
@@ -483,18 +477,18 @@ export class Supervisor {
     return lines.length ? lines.join('\n') : undefined
   }
 
-  private winRateForOrigin(active: StrainDesign[], origin: StrainDesign['origin']): number {
+  private winRateForOrigin(active: Hypothesis[], origin: Hypothesis['origin']): number {
     const group = active.filter((d) => d.origin === origin)
     const games = group.reduce((s, d) => s + d.wins + d.losses, 0)
     const wins = group.reduce((s, d) => s + d.wins, 0)
     return games === 0 ? 0 : wins / games
   }
 
-  private generationWinRate(active: StrainDesign[]): number {
+  private generationWinRate(active: Hypothesis[]): number {
     return this.winRateForOrigin(active, 'generated')
   }
 
-  private evolutionWinRate(active: StrainDesign[]): number {
+  private evolutionWinRate(active: Hypothesis[]): number {
     return this.winRateForOrigin(active, 'evolved')
   }
 
@@ -515,7 +509,7 @@ export class Supervisor {
       active: 0,
       rejected: 0,
       flagged: 0
-    } as Record<DesignStatus, number>
+    } as Record<HypothesisStatus, number>
     for (const d of designs) byStatus[d.status] = (byStatus[d.status] ?? 0) + 1
 
     const tasks = snapshot?.tasks ?? []

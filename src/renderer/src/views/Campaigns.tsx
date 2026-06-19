@@ -1,35 +1,23 @@
 import { useState } from 'react'
-import { useStore } from '../store/useStore'
+import { useStore, activePack } from '../store/useStore'
 import { CampaignStatusPill, Empty, timeAgo } from '../components/ui'
 import { IconPlus, IconClose, IconTrash, IconCampaigns, IconPlay } from '../components/Icons'
-import { HOST_PRESET_LIST, hostDisplayName } from '@shared/hosts'
 import {
   DEFAULT_COMPUTE_BUDGET,
   DEFAULT_TOURNAMENT_CONFIG,
-  type EngineeringObjective,
-  type HostPresetId,
   type TournamentConfig
 } from '@shared/domain'
+import { defaultWeights, labelFor, systemDisplayName } from '@shared/domainpack'
+import { packRegistry, resolvePack } from '@shared/packRegistry'
 import type { CreateCampaignInput } from '@shared/ipc'
 import { TournamentConfigEditor } from '../components/TournamentConfigEditor'
-
-const OBJECTIVES: { value: EngineeringObjective; label: string }[] = [
-  { value: 'increase-titer', label: 'Increase titer' },
-  { value: 'increase-rate', label: 'Increase production rate' },
-  { value: 'increase-yield', label: 'Increase yield' },
-  { value: 'broaden-substrate', label: 'Broaden substrate range' },
-  { value: 'improve-tolerance', label: 'Improve tolerance/robustness' },
-  { value: 'reduce-byproduct', label: 'Reduce byproduct' },
-  { value: 'improve-stability', label: 'Improve stability' },
-  { value: 'other', label: 'Other' }
-]
 
 export function Campaigns(): JSX.Element {
   const { campaigns, refreshCampaigns, selectCampaign, setView } = useStore()
   const [creating, setCreating] = useState(false)
 
   const onDelete = async (id: string, title: string) => {
-    if (!confirm(`Delete campaign "${title}"? This removes all its designs and history.`)) return
+    if (!confirm(`Delete campaign "${title}"? This removes all its hypotheses and history.`)) return
     await window.api.deleteCampaign(id)
     await refreshCampaigns()
     await selectCampaign(useStore.getState().campaigns[0]?.id ?? null)
@@ -49,7 +37,7 @@ export function Campaigns(): JSX.Element {
         <Empty
           icon={<IconCampaigns size={36} />}
           title="No campaigns yet"
-          hint="A campaign is a strain-engineering goal: a product target, a host, and constraints. The multi-agent engine then generates, reviews, and ranks designs toward it."
+          hint="A campaign is a research goal: a target, an experimental system, and constraints. The multi-agent engine then generates, reviews, and ranks hypotheses toward it."
         />
       ) : (
         <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
@@ -57,57 +45,60 @@ export function Campaigns(): JSX.Element {
             <thead>
               <tr>
                 <th>Campaign</th>
-                <th>Host</th>
+                <th>System</th>
                 <th>Objective</th>
-                <th className="num">Designs</th>
+                <th className="num">Hypotheses</th>
                 <th>Status</th>
                 <th>Updated</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
-              {campaigns.map((c) => (
-                <tr
-                  key={c.id}
-                  className="clickable"
-                  onClick={async () => {
-                    await selectCampaign(c.id)
-                    setView('dashboard')
-                  }}
-                >
-                  <td>
-                    <div style={{ fontWeight: 600 }}>{c.title}</div>
-                    <div className="faint" style={{ fontSize: 'var(--fs-xs)' }}>{c.productTarget}</div>
-                  </td>
-                  <td className="muted">{hostDisplayName(c.host.preset, c.host.customName)}</td>
-                  <td className="muted">{OBJECTIVES.find((o) => o.value === c.objective)?.label}</td>
-                  <td className="num">—</td>
-                  <td>
-                    <CampaignStatusPill status={c.status} />
-                  </td>
-                  <td className="muted" style={{ fontSize: 'var(--fs-sm)' }}>{timeAgo(c.updatedAt)}</td>
-                  <td onClick={(e) => e.stopPropagation()}>
-                    <div className="row gap-sm">
-                      {c.status !== 'running' && (
+              {campaigns.map((c) => {
+                const pack = resolvePack(c.packId)
+                return (
+                  <tr
+                    key={c.id}
+                    className="clickable"
+                    onClick={async () => {
+                      await selectCampaign(c.id)
+                      setView('dashboard')
+                    }}
+                  >
+                    <td>
+                      <div style={{ fontWeight: 600 }}>{c.title}</div>
+                      <div className="faint" style={{ fontSize: 'var(--fs-xs)' }}>{c.target}</div>
+                    </td>
+                    <td className="muted">{systemDisplayName(pack, c.context)}</td>
+                    <td className="muted">{labelFor(pack.objectives, c.objective)}</td>
+                    <td className="num">—</td>
+                    <td>
+                      <CampaignStatusPill status={c.status} />
+                    </td>
+                    <td className="muted" style={{ fontSize: 'var(--fs-sm)' }}>{timeAgo(c.updatedAt)}</td>
+                    <td onClick={(e) => e.stopPropagation()}>
+                      <div className="row gap-sm">
+                        {c.status !== 'running' && (
+                          <button
+                            className="btn btn-icon btn-ghost"
+                            title="Run"
+                            onClick={() => window.api.startCampaign(c.id)}
+                          >
+                            <IconPlay size={14} />
+                          </button>
+                        )}
                         <button
                           className="btn btn-icon btn-ghost"
-                          title="Run"
-                          onClick={() => window.api.startCampaign(c.id)}
+                          title="Delete"
+                          onClick={() => onDelete(c.id, c.title)}
                         >
-                          <IconPlay size={14} />
+                          <IconTrash size={14} />
                         </button>
-                      )}
-                      <button
-                        className="btn btn-icon btn-ghost"
-                        title="Delete"
-                        onClick={() => onDelete(c.id, c.title)}
-                      >
-                        <IconTrash size={14} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>
@@ -120,45 +111,66 @@ export function Campaigns(): JSX.Element {
 
 function CampaignForm({ onClose }: { onClose: () => void }): JSX.Element {
   const { refreshCampaigns, selectCampaign, setView } = useStore()
-  const [preset, setPreset] = useState<HostPresetId>('ecoli')
+  const packs = packRegistry.list()
+  const [packId, setPackId] = useState(activePack().id)
+  const pack = resolvePack(packId)
+
+  const [systemId, setSystemId] = useState(pack.systemPresets[0]?.id ?? 'custom')
   const [customName, setCustomName] = useState('')
-  const [strainBackground, setStrainBackground] = useState('')
-  const [hostNotes, setHostNotes] = useState('')
-  const [productTarget, setProductTarget] = useState('')
+  const [systemDetail, setSystemDetail] = useState('')
+  const [systemNotes, setSystemNotes] = useState('')
+  const [target, setTarget] = useState('')
   const [title, setTitle] = useState('')
-  const [objective, setObjective] = useState<EngineeringObjective>('increase-titer')
+  const [objective, setObjective] = useState(pack.objectives[0]?.id ?? 'other')
   const [goal, setGoal] = useState('')
-  const [tools, setTools] = useState('CRISPR-Cas9, plasmid overexpression, RBS tuning')
+  const [tools, setTools] = useState('')
   const [forbidden, setForbidden] = useState('')
-  const [biosafety, setBiosafety] = useState<'BSL-1' | 'BSL-2' | 'unspecified'>('unspecified')
+  const [complianceLevel, setComplianceLevel] = useState(
+    pack.complianceLevels[pack.complianceLevels.length - 1]?.id ?? ''
+  )
   const [onlyNovel, setOnlyNovel] = useState(false)
   const [preferences, setPreferences] = useState('')
   const [initialGeneration, setInitialGeneration] = useState(DEFAULT_COMPUTE_BUDGET.initialGeneration)
   const [targetDesigns, setTargetDesigns] = useState(DEFAULT_COMPUTE_BUDGET.targetDesigns)
   const [maxCycles, setMaxCycles] = useState(DEFAULT_COMPUTE_BUDGET.maxCycles)
-  const [tournamentConfig, setTournamentConfig] = useState<TournamentConfig>(DEFAULT_TOURNAMENT_CONFIG)
+  const [tournamentConfig, setTournamentConfig] = useState<TournamentConfig>({
+    ...DEFAULT_TOURNAMENT_CONFIG,
+    weights: defaultWeights(pack)
+  })
   const [submitting, setSubmitting] = useState(false)
 
-  const valid = productTarget.trim() && goal.trim()
+  // Re-seed pack-dependent fields when the domain pack changes.
+  const onPackChange = (id: string): void => {
+    const next = resolvePack(id)
+    setPackId(id)
+    setSystemId(next.systemPresets[0]?.id ?? 'custom')
+    setObjective(next.objectives[0]?.id ?? 'other')
+    setComplianceLevel(next.complianceLevels[next.complianceLevels.length - 1]?.id ?? '')
+    setTournamentConfig({ ...DEFAULT_TOURNAMENT_CONFIG, weights: defaultWeights(next) })
+  }
+
+  const selectedSystem = pack.systemPresets.find((s) => s.id === systemId)
+  const valid = target.trim() && goal.trim()
 
   const submit = async () => {
     if (!valid) return
     setSubmitting(true)
     const input: CreateCampaignInput = {
+      packId,
       title: title.trim(),
-      productTarget: productTarget.trim(),
-      host: {
-        preset,
-        customName: preset === 'custom' ? customName.trim() : undefined,
-        strainBackground: strainBackground.trim() || undefined,
-        notes: hostNotes.trim() || undefined
+      target: target.trim(),
+      context: {
+        systemId,
+        customName: selectedSystem?.isCustom ? customName.trim() : undefined,
+        systemDetail: systemDetail.trim() || undefined,
+        notes: systemNotes.trim() || undefined
       },
       objective,
       goal: goal.trim(),
       constraints: {
         availableTools: splitList(tools),
-        forbiddenInterventions: splitList(forbidden),
-        biosafety,
+        forbiddenActions: splitList(forbidden),
+        complianceLevel: complianceLevel || undefined,
         onlyNovel
       },
       preferences: preferences.trim(),
@@ -180,7 +192,7 @@ function CampaignForm({ onClose }: { onClose: () => void }): JSX.Element {
           <div style={{ flex: 1 }}>
             <h3 style={{ fontSize: 'var(--fs-lg)' }}>New campaign</h3>
             <div className="faint" style={{ fontSize: 'var(--fs-sm)' }}>
-              Define the strain-engineering goal, host, and constraints.
+              Define the research goal, {pack.labels.system.toLowerCase()}, and constraints.
             </div>
           </div>
           <button className="btn btn-icon btn-ghost" onClick={onClose}>
@@ -188,20 +200,33 @@ function CampaignForm({ onClose }: { onClose: () => void }): JSX.Element {
           </button>
         </div>
         <div className="drawer-body">
+          {packs.length > 1 && (
+            <div className="field">
+              <label>Research domain</label>
+              <select value={packId} onChange={(e) => onPackChange(e.target.value)}>
+                {packs.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.labels.appName}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           <div className="field">
-            <label>Product target *</label>
+            <label>{pack.labels.target} *</label>
             <input
-              value={productTarget}
-              onChange={(e) => setProductTarget(e.target.value)}
-              placeholder="e.g. mevalonate, L-lysine, secreted amylase"
+              value={target}
+              onChange={(e) => setTarget(e.target.value)}
+              placeholder={pack.labels.targetPlaceholder}
             />
           </div>
 
           <div className="grid grid-2">
             <div className="field">
-              <label>Host / chassis</label>
-              <select value={preset} onChange={(e) => setPreset(e.target.value as HostPresetId)}>
-                {HOST_PRESET_LIST.map((h) => (
+              <label>{pack.labels.system}</label>
+              <select value={systemId} onChange={(e) => setSystemId(e.target.value)}>
+                {pack.systemPresets.map((h) => (
                   <option key={h.id} value={h.id}>
                     {h.shortName} — {h.name}
                   </option>
@@ -210,9 +235,9 @@ function CampaignForm({ onClose }: { onClose: () => void }): JSX.Element {
             </div>
             <div className="field">
               <label>Objective</label>
-              <select value={objective} onChange={(e) => setObjective(e.target.value as EngineeringObjective)}>
-                {OBJECTIVES.map((o) => (
-                  <option key={o.value} value={o.value}>
+              <select value={objective} onChange={(e) => setObjective(e.target.value)}>
+                {pack.objectives.map((o) => (
+                  <option key={o.id} value={o.id}>
                     {o.label}
                   </option>
                 ))}
@@ -220,21 +245,21 @@ function CampaignForm({ onClose }: { onClose: () => void }): JSX.Element {
             </div>
           </div>
 
-          {preset === 'custom' && (
+          {selectedSystem?.isCustom && (
             <div className="field">
-              <label>Custom host name</label>
+              <label>Custom {pack.labels.system.toLowerCase()} name</label>
               <input value={customName} onChange={(e) => setCustomName(e.target.value)} placeholder="e.g. Yarrowia lipolytica" />
             </div>
           )}
 
           <div className="grid grid-2">
             <div className="field">
-              <label>Strain background</label>
-              <input value={strainBackground} onChange={(e) => setStrainBackground(e.target.value)} placeholder="e.g. BL21(DE3), CEN.PK" />
+              <label>System detail</label>
+              <input value={systemDetail} onChange={(e) => setSystemDetail(e.target.value)} placeholder="e.g. BL21(DE3), CEN.PK" />
             </div>
             <div className="field">
-              <label>Host notes (optional)</label>
-              <input value={hostNotes} onChange={(e) => setHostNotes(e.target.value)} placeholder="extra context for the agents" />
+              <label>System notes (optional)</label>
+              <input value={systemNotes} onChange={(e) => setSystemNotes(e.target.value)} placeholder="extra context for the agents" />
             </div>
           </div>
 
@@ -254,35 +279,39 @@ function CampaignForm({ onClose }: { onClose: () => void }): JSX.Element {
               value={preferences}
               onChange={(e) => setPreferences(e.target.value)}
               rows={2}
-              placeholder="e.g. prefer genome-integrated edits, minimal antibiotic markers, scalable to fed-batch"
+              placeholder="e.g. prefer simple, low-cost, scalable solutions"
             />
           </div>
 
           <div className="divider" />
           <div className="section-title">Constraints</div>
           <div className="field">
-            <label>Available genetic tools</label>
-            <input value={tools} onChange={(e) => setTools(e.target.value)} />
+            <label>Available tools / methods</label>
+            <input value={tools} onChange={(e) => setTools(e.target.value)} placeholder="comma-separated" />
             <span className="hint">Comma-separated.</span>
           </div>
           <div className="field">
-            <label>Forbidden interventions</label>
+            <label>Forbidden actions</label>
             <input value={forbidden} onChange={(e) => setForbidden(e.target.value)} placeholder="e.g. antibiotic-resistance markers" />
             <span className="hint">Comma-separated; leave blank for none.</span>
           </div>
           <div className="grid grid-2">
-            <div className="field">
-              <label>Biosafety level</label>
-              <select value={biosafety} onChange={(e) => setBiosafety(e.target.value as any)}>
-                <option value="BSL-1">BSL-1</option>
-                <option value="BSL-2">BSL-2</option>
-                <option value="unspecified">Unspecified</option>
-              </select>
-            </div>
+            {pack.complianceLevels.length > 0 && (
+              <div className="field">
+                <label>Compliance level</label>
+                <select value={complianceLevel} onChange={(e) => setComplianceLevel(e.target.value)}>
+                  {pack.complianceLevels.map((l) => (
+                    <option key={l.id} value={l.id}>
+                      {l.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div className="field" style={{ justifyContent: 'flex-end' }}>
               <label className="checkbox-row">
                 <input type="checkbox" checked={onlyNovel} onChange={(e) => setOnlyNovel(e.target.checked)} />
-                Only propose novel designs
+                Only propose novel {pack.labels.hypothesisPlural.toLowerCase()}
               </label>
             </div>
           </div>
@@ -295,7 +324,7 @@ function CampaignForm({ onClose }: { onClose: () => void }): JSX.Element {
               <input type="number" min={2} max={20} value={initialGeneration} onChange={(e) => setInitialGeneration(+e.target.value)} />
             </div>
             <div className="field">
-              <label>Target designs</label>
+              <label>Target {pack.labels.hypothesisPlural.toLowerCase()}</label>
               <input type="number" min={6} max={120} value={targetDesigns} onChange={(e) => setTargetDesigns(+e.target.value)} />
             </div>
             <div className="field">
@@ -306,7 +335,7 @@ function CampaignForm({ onClose }: { onClose: () => void }): JSX.Element {
 
           <div className="divider" />
           <div className="section-title">Tournament scoring</div>
-          <TournamentConfigEditor value={tournamentConfig} onChange={setTournamentConfig} />
+          <TournamentConfigEditor value={tournamentConfig} onChange={setTournamentConfig} pack={pack} />
 
           <div className="field">
             <label>Campaign title (optional)</label>

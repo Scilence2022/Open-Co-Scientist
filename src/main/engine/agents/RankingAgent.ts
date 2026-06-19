@@ -1,19 +1,19 @@
 import type {
   Campaign,
   CriteriaWeights,
-  CriterionKey,
   ExperimentalResult,
+  Hypothesis,
   Match,
-  StrainDesign,
   TournamentConfig
 } from '@shared/domain'
-import { CRITERIA_KEYS, DEFAULT_TOURNAMENT_CONFIG } from '@shared/domain'
+import { DEFAULT_TOURNAMENT_CONFIG } from '@shared/domain'
+import { resolvePack } from '@shared/packRegistry'
 import type { EngineContext } from '../context'
 import { parseJsonLoose } from '../../llm'
-import { matchPrompt, SYSTEM_PREAMBLE } from '../prompts'
+import { matchPrompt, systemPreamble } from '../prompts'
 import { updateElo, weightedTotal } from '../tournament/Elo'
 
-type Scores = Partial<Record<CriterionKey, number>>
+type Scores = Partial<Record<string, number>>
 
 /**
  * Ranking agent — runs Elo tournament matches via pairwise scientific debate.
@@ -31,8 +31,8 @@ export class RankingAgent {
 
   async match(
     campaign: Campaign,
-    a: StrainDesign,
-    b: StrainDesign,
+    a: Hypothesis,
+    b: Hypothesis,
     mode: 'debate' | 'single-turn',
     cycle: number
   ): Promise<Match> {
@@ -92,8 +92,8 @@ export class RankingAgent {
 
   private async llmMatch(
     campaign: Campaign,
-    a: StrainDesign,
-    b: StrainDesign,
+    a: Hypothesis,
+    b: Hypothesis,
     mode: 'debate' | 'single-turn',
     cfg: TournamentConfig,
     resultsA: ExperimentalResult[],
@@ -109,15 +109,16 @@ export class RankingAgent {
     const resultsSecond = swap ? resultsA : resultsB
     const res = await this.ctx.llm.complete({
       agent: 'ranking',
-      system: SYSTEM_PREAMBLE,
+      system: systemPreamble(campaign),
       prompt: matchPrompt(campaign, first, second, mode, resultsFirst, resultsSecond),
       effort: mode === 'debate' ? 'medium' : 'low',
       think: mode === 'debate',
       maxTokens: 2000
     })
     const parsed = parseJsonLoose<any>(res.text) ?? {}
-    const sFirst = cleanScores(parsed.scoresA, cfg.weights)
-    const sSecond = cleanScores(parsed.scoresB, cfg.weights)
+    const criteriaIds = resolvePack(campaign.packId).criteria.map((c) => c.id)
+    const sFirst = cleanScores(parsed.scoresA, cfg.weights, criteriaIds)
+    const sSecond = cleanScores(parsed.scoresB, cfg.weights, criteriaIds)
     return {
       scoresA: swap ? sSecond : sFirst,
       scoresB: swap ? sFirst : sSecond,
@@ -146,11 +147,12 @@ function decide(
 /**
  * Clamp the judged criteria to integers 0-10, defaulting a judged-but-missing
  * criterion to 5 so a partial parse never silently zeroes a dimension.
- * Criteria with weight 0 aren't requested and are left out.
+ * Criteria with weight 0 aren't requested and are left out. The criterion id set
+ * is supplied by the active pack.
  */
-function cleanScores(raw: any, weights: CriteriaWeights): Scores {
+function cleanScores(raw: any, weights: CriteriaWeights, criteriaIds: string[]): Scores {
   const out: Scores = {}
-  for (const k of CRITERIA_KEYS) {
+  for (const k of criteriaIds) {
     if ((weights[k] ?? 0) <= 0) continue
     const v = Number(raw?.[k])
     out[k] = Number.isFinite(v) ? Math.max(0, Math.min(10, Math.round(v))) : 5

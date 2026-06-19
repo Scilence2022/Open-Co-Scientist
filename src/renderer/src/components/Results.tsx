@@ -1,10 +1,8 @@
 import { useState } from 'react'
-import type { ExperimentalResult, QuantPrediction, ResultOutcome } from '@shared/domain'
-import { RESULT_OUTCOME_LABELS } from '@shared/domain'
+import type { ExperimentalResult, ResultOutcome } from '@shared/domain'
+import { labelFor } from '@shared/domainpack'
 import { OutcomeBadge, timeAgo } from './ui'
-
-const OUTCOMES = Object.keys(RESULT_OUTCOME_LABELS) as ResultOutcome[]
-const METRICS: QuantPrediction['metric'][] = ['titer', 'rate', 'yield', 'tolerance', 'other']
+import { usePack } from '../store/useStore'
 
 /** Signed relative change of a result vs its baseline, as a "+30%" string, or null. */
 export function resultDelta(r: ExperimentalResult): string | null {
@@ -33,8 +31,9 @@ export function RecordResultForm({
   designId: string
   onDone?: () => void
 }): JSX.Element {
+  const pack = usePack()
   const [outcome, setOutcome] = useState<ResultOutcome>('confirmed')
-  const [metric, setMetric] = useState<QuantPrediction['metric']>('titer')
+  const [metric, setMetric] = useState<string>(pack.metrics[0]?.id ?? 'other')
   const [measuredValue, setMeasuredValue] = useState('')
   const [baselineValue, setBaselineValue] = useState('')
   const [unit, setUnit] = useState('')
@@ -77,20 +76,20 @@ export function RecordResultForm({
       <div className="grid grid-2">
         <div className="field">
           <label>Outcome</label>
-          <select value={outcome} onChange={(e) => setOutcome(e.target.value as ResultOutcome)}>
-            {OUTCOMES.map((o) => (
-              <option key={o} value={o}>
-                {RESULT_OUTCOME_LABELS[o]}
+          <select value={outcome} onChange={(e) => setOutcome(e.target.value)}>
+            {pack.outcomes.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.label}
               </option>
             ))}
           </select>
         </div>
         <div className="field">
           <label>Metric</label>
-          <select value={metric} onChange={(e) => setMetric(e.target.value as QuantPrediction['metric'])}>
-            {METRICS.map((m) => (
-              <option key={m} value={m}>
-                {m}
+          <select value={metric} onChange={(e) => setMetric(e.target.value)}>
+            {pack.metrics.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.label}
               </option>
             ))}
           </select>
@@ -147,6 +146,7 @@ export function ResultsList({
   results: ExperimentalResult[]
   onChanged?: () => void
 }): JSX.Element {
+  const pack = usePack()
   if (results.length === 0) return <span className="faint">No results recorded yet.</span>
   return (
     <div className="col gap-sm">
@@ -159,7 +159,7 @@ export function ResultsList({
             <div key={r.id} className="lineage-node" style={{ opacity: disputed ? 0.55 : 1 }}>
               <div className="row gap-sm" style={{ marginBottom: 4 }}>
                 <OutcomeBadge outcome={r.outcome} />
-                {r.metric && <span className="badge">{r.metric}</span>}
+                {r.metric && <span className="badge">{labelFor(pack.metrics, r.metric)}</span>}
                 {delta && (
                   <span className="mono" style={{ color: delta.startsWith('-') ? 'var(--red)' : 'var(--green)' }}>
                     {delta}

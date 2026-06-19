@@ -1,10 +1,14 @@
 /**
- * Domain model for Strain Co-Scientist.
+ * Domain model for Open Co-Scientist.
  *
- * Adapts the Co-Scientist architecture (Gottweis et al., Nature 2026) from
- * biomedical hypothesis generation to the rational engineering of industrial
- * strains. A "research goal" becomes a strain-engineering Campaign; a
- * "hypothesis" becomes a StrainDesign (a concrete engineering strategy).
+ * Implements the Co-Scientist architecture (Gottweis et al., Nature 2026) as a
+ * domain-pluggable research platform: a "research goal" is a Campaign and a
+ * "hypothesis" is a {@link Hypothesis} (a concrete, testable research proposal).
+ * The shapes here are deliberately domain-NEUTRAL — every field that carries
+ * field-specific vocabulary (objectives, method types, metrics, judging criteria,
+ * experimental systems) is an OPEN string id resolved against the active
+ * {@link DomainPack}. Strain engineering ships as the flagship pack; other
+ * domains plug in by supplying their own pack.
  *
  * These types are shared verbatim between the Electron main process (engine +
  * persistence) and the renderer (UI), so they are intentionally free of any
@@ -12,42 +16,23 @@
  */
 
 // ---------------------------------------------------------------------------
-// Hosts / chassis
+// Campaign context (= the experimental system a campaign targets)
 // ---------------------------------------------------------------------------
 
-/** Built-in chassis presets plus escape hatches for custom / host-agnostic. */
-export type HostPresetId =
-  | 'ecoli'
-  | 'scerevisiae'
-  | 'cglutamicum'
-  | 'bsubtilis'
-  | 'pputida'
-  | 'ppastoris'
-  | 'custom'
-  | 'agnostic'
-
-export interface HostPreset {
-  id: HostPresetId
-  /** Display name, e.g. "Escherichia coli". */
-  name: string
-  /** Short common name, e.g. "E. coli". */
-  shortName: string
-  /** Gram stain / domain note used to steer design idioms. */
-  lineage: string
-  /** Strengths the chassis is conventionally used for. */
-  strengths: string
-  /** Genetic-engineering idioms the agents should prefer for this host. */
-  toolingNotes: string
-}
-
-/** The host context attached to a campaign. */
-export interface HostContext {
-  preset: HostPresetId
-  /** Free-text organism name when preset === 'custom'. */
+/**
+ * The experimental-system context attached to a campaign. `systemId` resolves
+ * against the active pack's {@link DomainPack.systemPresets} (was the strain
+ * "host/chassis"). The reserved ids `custom` and `agnostic` are the escape
+ * hatches for a user-named system and "let the system recommend one".
+ */
+export interface CampaignContext {
+  /** Open system-preset id from the active pack. */
+  systemId: string
+  /** Free-text system name when `systemId` is the pack's custom preset. */
   customName?: string
-  /** Strain background, e.g. "BL21(DE3)", "CEN.PK113-7D". */
-  strainBackground?: string
-  /** Any extra host context the scientist wants the agents to honour. */
+  /** Extra system detail, e.g. a strain background or a cell-format spec. */
+  systemDetail?: string
+  /** Any additional system context the scientist wants the agents to honour. */
   notes?: string
 }
 
@@ -55,94 +40,22 @@ export interface HostContext {
 // Campaign (= research goal + research-plan configuration)
 // ---------------------------------------------------------------------------
 
-export type EngineeringObjective =
-  | 'increase-titer'
-  | 'increase-rate'
-  | 'increase-yield'
-  | 'broaden-substrate'
-  | 'improve-tolerance'
-  | 'reduce-byproduct'
-  | 'improve-stability'
-  | 'other'
-
-export const OBJECTIVE_LABELS: Record<EngineeringObjective, string> = {
-  'increase-titer': 'Increase titer',
-  'increase-rate': 'Increase rate',
-  'increase-yield': 'Increase yield',
-  'broaden-substrate': 'Broaden substrate scope',
-  'improve-tolerance': 'Improve tolerance',
-  'reduce-byproduct': 'Reduce byproduct',
-  'improve-stability': 'Improve genetic stability',
-  other: 'Other'
-}
-
-export type BiosafetyLevel = 'BSL-1' | 'BSL-2' | 'unspecified'
-
 /**
- * The evaluation criteria, adapted from the paper's defaults (alignment,
- * plausibility, novelty, testability, safety) to strain engineering, plus an
- * explicit `effectiveness` axis (how much the modification target is expected
- * to move the desired phenotype — distinct from feasibility/plausibility).
- *
- * These doubly serve as the per-campaign tournament judge weights: the Ranking
- * agent scores both designs in a match on each criterion and the higher
- * weighted total wins. See {@link TournamentConfig}.
+ * Per-campaign judge weights: an open map of criterion id → weight. Generalizes
+ * the former fixed CriteriaWeights interface. Seeded from the active pack's
+ * {@link DomainPack.criteria} at campaign creation; 0 means "ignore this axis".
  */
-export interface CriteriaWeights {
-  alignment: number
-  effectiveness: number // predicted impact of the target on titer/rate/yield
-  plausibility: number // metabolic / thermodynamic feasibility
-  novelty: number
-  testability: number // genetic tractability + assay availability
-  hostCompatibility: number // burden, toxicity, genetic stability
-  safety: number // biosafety / dual-use
-}
-
-/**
- * Default judge weights. `effectiveness` dominates (3×) because for a production
- * strain the impact of the modification target usually matters more than
- * novelty; every weight is tunable per campaign.
- */
-export const DEFAULT_CRITERIA_WEIGHTS: CriteriaWeights = {
-  alignment: 1,
-  effectiveness: 3,
-  plausibility: 1,
-  novelty: 1,
-  testability: 1,
-  hostCompatibility: 1,
-  safety: 1
-}
-
-export const CRITERIA_KEYS = [
-  'alignment',
-  'effectiveness',
-  'plausibility',
-  'novelty',
-  'testability',
-  'hostCompatibility',
-  'safety'
-] as const
-export type CriterionKey = (typeof CRITERIA_KEYS)[number]
-
-export const CRITERION_LABELS: Record<CriterionKey, string> = {
-  alignment: 'Alignment',
-  effectiveness: 'Effectiveness',
-  plausibility: 'Plausibility',
-  novelty: 'Novelty',
-  testability: 'Testability',
-  hostCompatibility: 'Host compatibility',
-  safety: 'Safety'
-}
+export type CriteriaWeights = Record<string, number>
 
 export type CampaignStatus = 'draft' | 'running' | 'paused' | 'completed' | 'stopped' | 'error'
 
 /** How aggressively to spend test-time compute (number of cycles + breadth). */
 export interface ComputeBudget {
-  /** Target number of distinct designs to generate before convergence. */
+  /** Target number of distinct hypotheses to generate before convergence. */
   targetDesigns: number
   /** Maximum supervisor cycles before forced termination. */
   maxCycles: number
-  /** Designs to seed in the first generation pass. */
+  /** Hypotheses to seed in the first generation pass. */
   initialGeneration: number
 }
 
@@ -153,10 +66,10 @@ export const DEFAULT_COMPUTE_BUDGET: ComputeBudget = {
 }
 
 /**
- * Per-campaign tournament configuration. The Ranking agent scores BOTH designs
- * in a match across the weighted criteria; the winner is the higher weighted
- * total, so raising a criterion's weight makes the tournament — and therefore
- * the final ranking the scientist sees — prioritise that dimension.
+ * Per-campaign tournament configuration. The Ranking agent scores BOTH
+ * hypotheses in a match across the weighted criteria; the winner is the higher
+ * weighted total, so raising a criterion's weight makes the tournament — and
+ * therefore the final ranking the scientist sees — prioritise that dimension.
  *
  * Weights are editable mid-campaign: re-weighting replays the Elo ladder from
  * the per-match sub-scores stored on each {@link Match}, with no LLM matches
@@ -167,11 +80,11 @@ export interface TournamentConfig {
   weights: CriteriaWeights
   /** Top-vs-top multi-turn debate matches scheduled per cycle. */
   topDebates: number
-  /** Single-turn matches for the newest designs per cycle. */
+  /** Single-turn matches for the newest hypotheses per cycle. */
   singleTurnMatches: number
   /** Hard cap on matches scheduled in a single cycle. */
   maxPairsPerCycle: number
-  /** Present designs to the judge in randomised A/B order to cancel position bias. */
+  /** Present hypotheses to the judge in randomised A/B order to cancel position bias. */
   randomizeOrder: boolean
   /** How to resolve an exact weighted-total tie. */
   tieHandling: 'higher-elo' | 'draw'
@@ -179,8 +92,14 @@ export interface TournamentConfig {
   kFactor: number
 }
 
+/**
+ * Neutral default tournament knobs. `weights` is intentionally empty — campaign
+ * creation seeds it from the active pack's criteria (see `defaultWeights`). This
+ * value is only a structural fallback for the `campaign.tournamentConfig ?? …`
+ * guards; a real campaign always carries pack-seeded weights.
+ */
 export const DEFAULT_TOURNAMENT_CONFIG: TournamentConfig = {
-  weights: { ...DEFAULT_CRITERIA_WEIGHTS },
+  weights: {},
   topDebates: 2,
   singleTurnMatches: 3,
   maxPairsPerCycle: 6,
@@ -195,20 +114,25 @@ export interface Campaign {
   updatedAt: number
   status: CampaignStatus
 
-  /** The product / phenotype the scientist wants to engineer toward. */
-  productTarget: string
+  /** Which domain pack this campaign runs under (resolves vocabulary/prompts/UI). */
+  packId: string
+
+  /** The product / phenotype / property the scientist wants to engineer toward. */
+  target: string
   /** One-line title shown in lists. */
   title: string
-  host: HostContext
-  objective: EngineeringObjective
+  context: CampaignContext
+  /** Open objective id resolved against the pack's {@link DomainPack.objectives}. */
+  objective: string
   /** Full natural-language goal (may be long; mirrors the paper's free-form goal). */
   goal: string
 
   /** Constraints the agents must honour. */
   constraints: {
-    availableTools: string[] // e.g. ["CRISPR-Cas9", "lambda-Red", "plasmid overexpression"]
-    forbiddenInterventions: string[]
-    biosafety: BiosafetyLevel
+    availableTools: string[] // domain methods/tools available, e.g. ["CRISPR-Cas9"]
+    forbiddenActions: string[]
+    /** Open compliance-level id from the pack (was biosafety); absent if none. */
+    complianceLevel?: string
     regulatoryNotes?: string
     onlyNovel: boolean // mirrors "exclusively propose novel hypotheses"
   }
@@ -230,80 +154,62 @@ export interface ResearchPlanConfig {
   focusAreas: string[]
   derivedConstraints: string[]
   evaluationRubric: string
-  recommendedChassis?: string // populated for host-agnostic campaigns
+  recommendedSystem?: string // populated for system-agnostic campaigns
   parsedAt: number
 }
 
 // ---------------------------------------------------------------------------
-// StrainDesign (= hypothesis / research proposal)
+// Hypothesis (= research proposal / strategy)
 // ---------------------------------------------------------------------------
 
-export type InterventionType =
-  | 'knockout'
-  | 'overexpression'
-  | 'knockdown'
-  | 'promoter-swap'
-  | 'rbs-tuning'
-  | 'heterologous-pathway'
-  | 'transporter-engineering'
-  | 'cofactor-balancing'
-  | 'dynamic-regulation'
-  | 'enzyme-engineering'
-  | 'other'
-
-export const INTERVENTION_LABELS: Record<InterventionType, string> = {
-  knockout: 'Knockout',
-  overexpression: 'Overexpression',
-  knockdown: 'Knockdown',
-  'promoter-swap': 'Promoter swap',
-  'rbs-tuning': 'RBS tuning',
-  'heterologous-pathway': 'Heterologous pathway',
-  'transporter-engineering': 'Transporter engineering',
-  'cofactor-balancing': 'Cofactor balancing',
-  'dynamic-regulation': 'Dynamic regulation',
-  'enzyme-engineering': 'Enzyme engineering',
-  other: 'Other'
-}
-
-export interface Intervention {
-  type: InterventionType
-  /** Target gene(s)/operon(s); free-text, e.g. "ldhA", "MVA pathway (mvaE,mvaS)". */
+/**
+ * One proposed action within a hypothesis. `type` is an open id resolved against
+ * the pack's {@link DomainPack.methodTypes} (was the strain InterventionType).
+ * The shape is general enough for any domain: a typed action on some targets,
+ * with a molecular/physical rationale.
+ */
+export interface Method {
+  /** Open method-type id from the active pack. */
+  type: string
+  /** Targets the action operates on; free-text, e.g. genes, sites, components. */
   targets: string[]
-  /** What is done and why, at the molecular level. */
+  /** What is done and why, at the mechanistic level. */
   details: string
 }
 
-/** A single Design→Build→Test→Learn step (from Robin's DBTL loop). */
-export interface DBTLStep {
-  phase: 'design' | 'build' | 'test' | 'learn'
+/** A single step of the experimental plan (was the strain DBTL step). */
+export interface PlanStep {
+  /** Open plan-phase id from the pack (e.g. design/build/test/learn). */
+  phase: string
   description: string
 }
 
 /**
- * A structured, comparable prediction the design commits to, so a measured
- * outcome can be scored against it (prediction calibration). Authored by the
- * Generation/Evolution agents alongside the free-text `predictedEffect`; fully
- * optional so a parse miss never blocks design creation.
+ * A structured, comparable prediction the hypothesis commits to, so a measured
+ * outcome can be scored against it (prediction calibration). The neutral
+ * learn-loop reads this directly, so it stays on the core envelope.
  */
 export interface QuantPrediction {
-  /** Which phenotype the prediction is about. */
-  metric: 'titer' | 'rate' | 'yield' | 'tolerance' | 'other'
+  /** Open metric id resolved against the pack's {@link DomainPack.metrics}. */
+  metric: string
   /** Direction of the expected change vs the unmodified baseline. */
   direction: 'increase' | 'decrease'
   /** Predicted relative change vs baseline as a fraction, e.g. 0.3 = ±30%. */
   relativeChange?: number
   /** 0-1 self-assessed confidence in the prediction (used for Brier calibration). */
   confidence?: number
-  /** What the change is measured against, e.g. "wild-type BL21 in shake flask". */
+  /** What the change is measured against, e.g. "wild-type baseline". */
   baselineNote?: string
 }
 
-export interface ConstructSuggestion {
+/** A concrete construct/recipe/protocol artifact attached to a hypothesis. */
+export interface Artifact {
   label: string // e.g. "Forward primer for ldhA deletion cassette"
   detail: string
-  /** Sequence if CodeXomics produced one. */
-  sequence?: string
-  source: 'codexomics' | 'model'
+  /** Sequence / recipe / spec content when a tool produced one. */
+  content?: string
+  /** Provenance: an open tool id (e.g. "codexomics") or "model". */
+  source: string
 }
 
 export interface Citation {
@@ -312,53 +218,42 @@ export interface Citation {
   note?: string
 }
 
-export type DesignOrigin = 'generated' | 'evolved' | 'expert'
+export type HypothesisOrigin = 'generated' | 'evolved' | 'expert'
 
-export type DesignStatus =
+export type HypothesisStatus =
   | 'draft' // freshly generated, not yet reviewed
   | 'reviewing'
   | 'active' // in the tournament
   | 'rejected' // failed initial review
-  | 'flagged' // marked by the scientist for wet-lab
+  | 'flagged' // marked by the scientist for experimental testing
 
 /**
- * Outcome of building + testing a design in the wet lab (the DBTL "Test"/
- * "Learn" step). `build-failed`/`inconclusive` are recorded but never downgrade
- * a design below `predicted-only` — only a decisive measured outcome moves the
- * evidence grade.
+ * Outcome of building + testing a hypothesis (the "Test"/"Learn" step). The ids
+ * `confirmed`/`partial`/`refuted` are reserved canonical outcomes the engine
+ * keys evidence grading on; non-decisive outcomes a pack adds (e.g.
+ * `build-failed`, `inconclusive`) never downgrade a hypothesis below
+ * `predicted-only`. Open string resolved against the pack's outcomes.
  */
-export type ResultOutcome =
-  | 'confirmed' // measured improvement met or beat the prediction
-  | 'partial' // some improvement, below the prediction
-  | 'refuted' // no improvement, or worse than baseline
-  | 'inconclusive' // assay failed or too noisy to call
-  | 'build-failed' // the strain could not be constructed
-
-export const RESULT_OUTCOME_LABELS: Record<ResultOutcome, string> = {
-  confirmed: 'Confirmed',
-  partial: 'Partial',
-  refuted: 'Refuted',
-  inconclusive: 'Inconclusive',
-  'build-failed': 'Build failed'
-}
+export type ResultOutcome = string
 
 /**
- * The authoritative empirical standing of a design, derived purely from its
+ * The authoritative empirical standing of a hypothesis, derived purely from its
  * {@link ExperimentalResult}s. This is the top-level ordering key — a
- * measured-confirmed design always sorts above a predicted-only one regardless
- * of Elo, and a refuted design sinks below everything. See {@link compareDesigns}.
+ * measured-confirmed hypothesis always sorts above a predicted-only one
+ * regardless of Elo, and a refuted one sinks below everything. See
+ * {@link compareDesigns}.
  */
 export type EvidenceGrade =
   | 'measured-confirmed'
   | 'measured-partial'
-  | 'predicted-only' // the default for every design with no wet-lab data
+  | 'predicted-only' // the default for every hypothesis with no measured data
   | 'measured-refuted'
 
 export const EVIDENCE_GRADE_LABELS: Record<EvidenceGrade, string> = {
-  'measured-confirmed': 'Confirmed in lab',
+  'measured-confirmed': 'Confirmed',
   'measured-partial': 'Partially supported',
   'predicted-only': 'Predicted only',
-  'measured-refuted': 'Refuted in lab'
+  'measured-refuted': 'Refuted'
 }
 
 /** Sort rank for evidence grades; higher = more authoritative. */
@@ -375,48 +270,56 @@ export interface EloSnapshot {
   elo: number
 }
 
-export interface DesignLineage {
+export interface HypothesisLineage {
   parentIds: string[]
-  /** Which Evolution strategy produced this design, if evolved. */
+  /** Which Evolution strategy produced this hypothesis, if evolved. */
   strategy?: EvolutionStrategy
 }
 
-export interface StrainDesign {
+/**
+ * A concrete, testable research proposal (was Hypothesis). Structurally
+ * domain-neutral: `system`/`methods`/`plan` carry open vocabulary ids resolved
+ * against the active pack, but their shapes are fixed so the engine and UI never
+ * need to know the domain.
+ */
+export interface Hypothesis {
   id: string
   campaignId: string
   createdAt: number
   updatedAt: number
 
   title: string
-  /** One-paragraph summary categorising the core idea (paper: agent summarises each). */
+  /** One-paragraph summary categorising the core idea. */
   summary: string
-  chassis: string
+  /** The specific experimental system this targets (was chassis). */
+  system: string
 
-  interventions: Intervention[]
+  /** The proposed actions (was interventions). */
+  methods: Method[]
   mechanism: string
-  /** Qualitative predicted effect on titer/rate/yield + rationale. */
+  /** Qualitative predicted effect + rationale. */
   predictedEffect: string
   /** Structured, calibratable prediction (optional; complements predictedEffect). */
   quantPrediction?: QuantPrediction
-  experimentalPlan: DBTLStep[]
-  constructSuggestions: ConstructSuggestion[]
+  plan: PlanStep[]
+  /** Construct/recipe/protocol artifacts (was constructSuggestions). */
+  artifacts: Artifact[]
   risks: string[]
   citations: Citation[]
 
   /** 0-10 self/assessed novelty, refined by Reflection with literature search. */
   novelty: number
 
-  origin: DesignOrigin
-  status: DesignStatus
+  origin: HypothesisOrigin
+  status: HypothesisStatus
   /**
-   * Cached evidence grade derived from this design's {@link ExperimentalResult}s.
+   * Cached evidence grade derived from this hypothesis's {@link ExperimentalResult}s.
    * Kept in sync by the engine whenever a result is recorded/disputed and
    * recomputed on store load, so comparators can read it without re-aggregating.
-   * Absent (treated as `predicted-only`) on legacy designs and designs with no
-   * wet-lab data.
+   * Absent (treated as `predicted-only`) on hypotheses with no measured data.
    */
   evidence?: EvidenceGrade
-  lineage: DesignLineage
+  lineage: HypothesisLineage
 
   // Tournament state
   elo: number
@@ -430,15 +333,18 @@ export interface StrainDesign {
 }
 
 // ---------------------------------------------------------------------------
-// Experimental results (DBTL "Test"/"Learn" — closes the feedback loop)
+// Experimental results ("Test"/"Learn" — closes the feedback loop)
 // ---------------------------------------------------------------------------
 
 /**
- * A wet-lab (or external dataset) measurement returned for a design. This is the
- * ground-truth signal that closes the Design-Build-Test-Learn loop: results are
- * authoritative over the model's predicted merit. A design may accrue several
- * results (replicate batches, re-tests); the evidence grade is derived from the
- * aggregate of its `recorded` results.
+ * A measured result returned for a hypothesis. This is the ground-truth signal
+ * that closes the predict→measure→learn loop: results are authoritative over the
+ * model's predicted merit. A hypothesis may accrue several results (replicate
+ * batches, re-tests); the evidence grade is derived from the aggregate of its
+ * `recorded` results.
+ *
+ * NOTE: the `designId` field name is retained as the internal foreign key to a
+ * {@link Hypothesis.id} (historical; avoids a churny rename across persistence).
  */
 export interface ExperimentalResult {
   id: string
@@ -446,8 +352,8 @@ export interface ExperimentalResult {
   designId: string
   createdAt: number
   outcome: ResultOutcome
-  /** Which phenotype was measured (for calibration against the prediction). */
-  metric?: QuantPrediction['metric']
+  /** Which metric was measured (open id, for calibration against the prediction). */
+  metric?: string
   /** Measured value and its baseline (same unit) — enables a calibration delta. */
   measuredValue?: number
   baselineValue?: number
@@ -467,9 +373,9 @@ export interface ExperimentalResult {
 
 /**
  * Per-cycle prediction-calibration snapshot: how well the campaign's structured
- * predictions matched what the lab measured. The whole point of the feedback
- * loop is that these numbers improve over time — the system learns to predict
- * better. Computed purely from designs + their results.
+ * predictions matched what was measured. The whole point of the feedback loop is
+ * that these numbers improve over time — the system learns to predict better.
+ * Computed purely from hypotheses + their results.
  */
 export interface CalibrationProfile {
   campaignId: string
@@ -485,12 +391,12 @@ export interface CalibrationProfile {
   spearman: number
   /** Brier score on the predicted-direction hit, when confidences are present (0..1, lower better). */
   brier?: number
-  /** Mean signed error broken down by intervention type, to expose class-specific bias. */
-  biasByInterventionType: Partial<Record<InterventionType, number>>
+  /** Mean signed error broken down by method type, to expose class-specific bias. */
+  biasByMethodType: Record<string, number>
 }
 
 // ---------------------------------------------------------------------------
-// Reviews (Reflection agent) — the six review modes from the paper
+// Reviews (Reflection agent) — the review modes from the paper
 // ---------------------------------------------------------------------------
 
 export type ReviewType =
@@ -520,12 +426,12 @@ export interface Review {
   campaignId: string
   type: ReviewType
   createdAt: number
-  /** Per-criterion 0-10 scores (subset present depending on review type). */
-  scores: Partial<Record<CriterionKey, number>>
+  /** Per-criterion 0-10 scores (open criterion ids; subset present per review type). */
+  scores: Partial<Record<string, number>>
   /** Overall recommendation. */
   verdict: 'pass' | 'revise' | 'reject'
   narrative: string
-  /** Evidence gathered from tools (literature / genomic), for grounding. */
+  /** Evidence gathered from tools (literature / domain), for grounding. */
   evidence: string[]
   /** Who produced it: an agent or a named expert. */
   author: string
@@ -543,19 +449,19 @@ export interface Match {
   designAId: string
   designBId: string
   winnerId: string
-  /** Multi-turn debate for top designs, single-turn for lower-ranked. */
+  /** Multi-turn debate for top hypotheses, single-turn for lower-ranked. */
   mode: 'debate' | 'single-turn'
   transcript: string
   rationale: string
   eloDelta: number
   /**
-   * Per-criterion 0-10 judge scores for each design. Persisted so the Elo
+   * Per-criterion 0-10 judge scores for each hypothesis. Persisted so the Elo
    * ladder can be deterministically replayed under new weights without
-   * re-running the match. Absent on legacy matches (pre multi-dimensional
-   * scoring) — replay falls back to the stored winnerId for those.
+   * re-running the match. Absent on legacy matches — replay falls back to the
+   * stored winnerId for those.
    */
-  scoresA?: Partial<Record<CriterionKey, number>>
-  scoresB?: Partial<Record<CriterionKey, number>>
+  scoresA?: Partial<Record<string, number>>
+  scoresB?: Partial<Record<string, number>>
   /** Weighted totals that decided the winner, for audit in the UI. */
   weightedTotalA?: number
   weightedTotalB?: number
@@ -577,7 +483,7 @@ export type EvolutionStrategy =
 export const EVOLUTION_STRATEGY_LABELS: Record<EvolutionStrategy, string> = {
   'grounding-enhancement': 'Enhancement through grounding',
   feasibility: 'Coherence & feasibility',
-  inspiration: 'Inspiration from top designs',
+  inspiration: 'Inspiration from top hypotheses',
   combination: 'Combination',
   simplification: 'Simplification',
   'out-of-box': 'Out-of-box thinking',
@@ -610,7 +516,7 @@ export interface MetaReview {
   critiquePatterns: string[]
   /** Feedback strings appended to each agent's prompt next cycle (no backprop). */
   agentFeedback: Partial<Record<AgentRole, string>>
-  /** The synthesised engineering-campaign roadmap. */
+  /** The synthesised research roadmap. */
   overview: {
     summary: string
     areas: ResearchOverviewArea[]
@@ -655,7 +561,7 @@ export interface TaskRecord {
   startedAt?: number
   finishedAt?: number
   error?: string
-  /** IDs of designs this task produced or acted on. */
+  /** IDs of hypotheses this task produced or acted on. */
   resultDesignIds?: string[]
 }
 
@@ -665,10 +571,10 @@ export interface SystemStatistics {
   cycle: number
   at: number
   designsTotal: number
-  designsByStatus: Record<DesignStatus, number>
+  designsByStatus: Record<HypothesisStatus, number>
   reviewsTotal: number
   matchesTotal: number
-  topEloAvg10: number // average Elo of top-10 designs (paper's key metric)
+  topEloAvg10: number // average Elo of top-10 hypotheses (paper's key metric)
   bestElo: number
   queueDepth: number
   /** Adaptive sampling weights the Supervisor assigns to each worker agent. */
@@ -692,7 +598,7 @@ export interface ActivityEvent {
   agent: AgentRole | 'system' | 'expert'
   severity: ActivitySeverity
   message: string
-  /** Optional structured payload (design id, match id, etc.). */
+  /** Optional structured payload (hypothesis id, match id, etc.). */
   meta?: Record<string, unknown>
 }
 
@@ -783,22 +689,27 @@ export interface AppSettings {
     temperature: number
     maxTokens: number
   }
-  mcp: {
-    deepResearch: McpServerConfig
-    codexomics: McpServerConfig
-  }
+  /**
+   * MCP server configs keyed by server id. `deepResearch` is the shared core
+   * literature tool; additional keys are pack-declared tool bindings (e.g.
+   * `codexomics`). Seeded from the active pack's tools at boot.
+   */
+  mcp: Record<string, McpServerConfig>
   run: {
     /** Max concurrent worker tasks. */
     concurrency: number
   }
-  safety: {
-    /** Hard gate: reject designs that fail the safety criterion. */
-    enforceBiosafety: boolean
-  }
+  /**
+   * Hard-veto gate toggles keyed by {@link SafetyGate.settingKey}. Absent keys
+   * fall back to the gate's `defaultEnabled`.
+   */
+  safety: Record<string, boolean>
   ui: {
     /** Colour theme for the interface. */
     theme: UiTheme
   }
+  /** The active domain pack id new campaigns default to. */
+  activePackId?: string
 }
 
 export type UiTheme = 'dark' | 'light'
@@ -818,15 +729,12 @@ export const DEFAULT_SETTINGS: AppSettings = {
     maxTokens: 0
   },
   mcp: {
-    deepResearch: { enabled: false, url: 'http://127.0.0.1:3000/api/mcp' },
-    codexomics: { enabled: false, url: 'http://localhost:3002' }
+    deepResearch: { enabled: false, url: 'http://127.0.0.1:3000/api/mcp' }
   },
   run: {
     concurrency: 3
   },
-  safety: {
-    enforceBiosafety: true
-  },
+  safety: {},
   ui: {
     theme: 'dark'
   }
@@ -839,14 +747,14 @@ export const DEFAULT_SETTINGS: AppSettings = {
 /** Everything the UI needs to render a campaign in detail. */
 export interface CampaignSnapshot {
   campaign: Campaign
-  designs: StrainDesign[]
+  designs: Hypothesis[]
   reviews: Review[]
   matches: Match[]
   metaReviews: MetaReview[]
   statistics: SystemStatistics[]
   tasks: TaskRecord[]
   events: ActivityEvent[]
-  /** Wet-lab results recorded against designs (DBTL "Learn"). */
+  /** Measured results recorded against hypotheses (DBTL "Learn"). */
   results: ExperimentalResult[]
   /** Per-cycle prediction-calibration snapshots. */
   calibration: CalibrationProfile[]
@@ -857,11 +765,12 @@ export interface CampaignSnapshot {
 // ---------------------------------------------------------------------------
 
 /**
- * Derive a design's authoritative evidence grade from its results. Only
+ * Derive a hypothesis's authoritative evidence grade from its results. Only
  * `recorded` results count (disputed/superseded are ignored). The most decisive
  * recorded outcome wins, in priority order confirmed > partial > refuted;
- * `build-failed`/`inconclusive` carry no decisive signal and leave the design at
- * `predicted-only`. Pure: same inputs always yield the same grade.
+ * non-decisive outcomes (e.g. `build-failed`/`inconclusive`) carry no decisive
+ * signal and leave the hypothesis at `predicted-only`. Pure: same inputs always
+ * yield the same grade.
  */
 export function evidenceGradeFor(results: ExperimentalResult[]): EvidenceGrade {
   const decisive = results.filter((r) => r.status === 'recorded')
@@ -871,18 +780,18 @@ export function evidenceGradeFor(results: ExperimentalResult[]): EvidenceGrade {
   return 'predicted-only'
 }
 
-/** The numeric evidence rank for a design (defaulting absent → predicted-only). */
-export function evidenceRankOf(design: Pick<StrainDesign, 'evidence'>): number {
+/** The numeric evidence rank for a hypothesis (defaulting absent → predicted-only). */
+export function evidenceRankOf(design: Pick<Hypothesis, 'evidence'>): number {
   return EVIDENCE_RANK[design.evidence ?? 'predicted-only']
 }
 
 /**
  * Authoritative "best first" comparator: evidence grade dominates, Elo breaks
  * ties within a grade. Measured ground truth therefore always outranks a purely
- * predicted design, while the speculative Elo ladder still orders the frontier.
- * Use everywhere designs are sorted for selection or display.
+ * predicted hypothesis, while the speculative Elo ladder still orders the
+ * frontier. Use everywhere hypotheses are sorted for selection or display.
  */
-export function compareDesigns(a: StrainDesign, b: StrainDesign): number {
+export function compareDesigns(a: Hypothesis, b: Hypothesis): number {
   const byEvidence = evidenceRankOf(b) - evidenceRankOf(a)
   return byEvidence !== 0 ? byEvidence : b.elo - a.elo
 }

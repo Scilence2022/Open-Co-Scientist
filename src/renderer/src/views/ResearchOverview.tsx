@@ -1,9 +1,10 @@
 import { useState } from 'react'
-import { useStore } from '../store/useStore'
+import { useStore, usePack } from '../store/useStore'
 import { Empty } from '../components/ui'
 import { IconDownload, IconOverview, IconRefresh } from '../components/Icons'
-import { OBJECTIVE_LABELS, type CampaignSnapshot, type MetaReview } from '@shared/domain'
-import { hostDisplayName } from '@shared/hosts'
+import type { CampaignSnapshot, MetaReview } from '@shared/domain'
+import type { DomainPack } from '@shared/domainpack'
+import { labelFor, systemDisplayName } from '@shared/domainpack'
 
 /** A filesystem-safe slug for the export file name. */
 function slugify(s: string): string {
@@ -11,7 +12,7 @@ function slugify(s: string): string {
 }
 
 /** Assemble the complete research overview as a self-contained Markdown document. */
-function buildMarkdown(snapshot: CampaignSnapshot, meta: MetaReview): string {
+function buildMarkdown(snapshot: CampaignSnapshot, meta: MetaReview, pack: DomainPack): string {
   const c = snapshot.campaign
   const title = (id: string) => snapshot.designs.find((d) => d.id === id)?.title ?? id
   const L: string[] = []
@@ -21,9 +22,9 @@ function buildMarkdown(snapshot: CampaignSnapshot, meta: MetaReview): string {
   L.push('')
   L.push('## Campaign')
   L.push('')
-  L.push(`- **Product / phenotype target:** ${c.productTarget}`)
-  L.push(`- **Host:** ${hostDisplayName(c.host.preset, c.host.customName)}`)
-  L.push(`- **Objective:** ${OBJECTIVE_LABELS[c.objective]}`)
+  L.push(`- **${pack.labels.target}:** ${c.target}`)
+  L.push(`- **${pack.labels.system}:** ${systemDisplayName(pack, c.context)}`)
+  L.push(`- **Objective:** ${labelFor(pack.objectives, c.objective)}`)
   if (c.goal.trim()) {
     L.push('')
     L.push('**Goal**')
@@ -35,7 +36,7 @@ function buildMarkdown(snapshot: CampaignSnapshot, meta: MetaReview): string {
   L.push('')
   L.push(meta.overview.summary || '—')
   L.push('')
-  L.push('## Engineering roadmap')
+  L.push('## Research roadmap')
   meta.overview.areas.forEach((area, i) => {
     L.push('')
     L.push(`### ${i + 1}. ${area.title}`)
@@ -73,13 +74,14 @@ function buildMarkdown(snapshot: CampaignSnapshot, meta: MetaReview): string {
   L.push('')
   L.push('---')
   L.push('')
-  L.push(`_Exported from Strain Co-Scientist on ${new Date().toLocaleString()}._`)
+  L.push(`_Exported from ${pack.labels.appName} on ${new Date().toLocaleString()}._`)
   L.push('')
   return L.join('\n')
 }
 
 export function ResearchOverview(): JSX.Element {
   const { snapshot, selectedId, openDesign, setView } = useStore()
+  const pack = usePack()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [exported, setExported] = useState(false)
@@ -111,7 +113,7 @@ export function ResearchOverview(): JSX.Element {
     setExported(false)
     const res = await window.api.exportFile({
       defaultName: `research-overview-${slugify(snapshot.campaign.title)}.md`,
-      contents: buildMarkdown(snapshot, meta),
+      contents: buildMarkdown(snapshot, meta, pack),
       filters: [
         { name: 'Markdown', extensions: ['md'] },
         { name: 'Text', extensions: ['txt'] }
@@ -168,7 +170,7 @@ export function ResearchOverview(): JSX.Element {
       </div>
 
       <div className="col gap-md">
-        <div className="section-title">Engineering roadmap</div>
+        <div className="section-title">Research roadmap</div>
         {meta.overview.areas.map((area, i) => (
           <div key={i} className="card">
             <div className="card-title" style={{ marginBottom: 8 }}>{area.title}</div>

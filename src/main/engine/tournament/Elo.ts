@@ -1,5 +1,4 @@
-import type { CriteriaWeights, CriterionKey } from '@shared/domain'
-import { CRITERIA_KEYS } from '@shared/domain'
+import type { CriteriaWeights } from '@shared/domain'
 
 /**
  * Elo rating utilities for the Ranking agent's tournament.
@@ -35,17 +34,19 @@ export function updateElo(
 }
 
 /**
- * Weighted sum of a design's per-criterion judge scores. Missing criteria are
- * skipped (not treated as 0), so a partial score object degrades gracefully.
- * This is the head-to-head ranking quantity: higher weighted total wins.
+ * Weighted sum of a hypothesis's per-criterion judge scores. Iterates the
+ * campaign's weight keys (open criterion ids supplied by the active pack);
+ * missing scores are skipped (not treated as 0), so a partial score object
+ * degrades gracefully. This is the head-to-head ranking quantity: higher
+ * weighted total wins.
  */
 export function weightedTotal(
-  scores: Partial<Record<CriterionKey, number>> | undefined,
+  scores: Partial<Record<string, number>> | undefined,
   weights: CriteriaWeights
 ): number {
   if (!scores) return 0
   let total = 0
-  for (const k of CRITERIA_KEYS) {
+  for (const k of Object.keys(weights)) {
     const s = scores[k]
     if (typeof s === 'number') total += (weights[k] ?? 0) * s
   }

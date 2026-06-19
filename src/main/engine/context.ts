@@ -6,18 +6,19 @@ import type {
   AppSettings,
   CalibrationProfile,
   ExperimentalResult,
+  Hypothesis,
   Match,
   MetaReview,
   Review,
-  StrainDesign,
   SystemStatistics,
   TaskRecord
 } from '@shared/domain'
+import type { McpConnectionLike } from '@shared/domainpack'
 import type { EngineEvent } from '@shared/ipc'
 import type { Store } from '../memory/Store'
 import type { LLMClient } from '../llm'
 import type { DeepResearchClient } from '../mcp/DeepResearchClient'
-import type { CodexomicsClient } from '../mcp/CodexomicsClient'
+import type { McpManager } from '../mcp/McpManager'
 
 /**
  * Shared services and persistence/emit helpers handed to every agent. Centralises
@@ -28,10 +29,15 @@ export class EngineContext {
     public store: Store,
     public llm: LLMClient,
     public deepResearch: DeepResearchClient,
-    public codexomics: CodexomicsClient,
+    private mcp: McpManager,
     public settings: AppSettings,
     private emitter: (event: EngineEvent) => void
   ) {}
+
+  /** Resolve a pack tool's MCP connection by tool id (for pack tool hooks). */
+  toolConn(id: string): McpConnectionLike | undefined {
+    return this.mcp.tool(id)
+  }
 
   emit(event: EngineEvent): void {
     this.emitter(event)
@@ -58,7 +64,7 @@ export class EngineContext {
     return event
   }
 
-  upsertDesign(design: StrainDesign): void {
+  upsertDesign(design: Hypothesis): void {
     design.updatedAt = Date.now()
     this.store.upsertDesign(design)
     this.emit({ kind: 'design-upsert', campaignId: design.campaignId, design })
