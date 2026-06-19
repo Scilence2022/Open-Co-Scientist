@@ -6,13 +6,15 @@
  */
 import { packRegistry } from '@shared/packRegistry'
 import strainPack from './strain'
+import batteryPack from './battery'
 
 let registered = false
 
-/** Register all built-in domain packs (idempotent). */
+/** Register all built-in domain packs (idempotent). Order sets the default. */
 export function registerDomainPacks(): void {
   if (registered) return
-  packRegistry.register(strainPack)
+  packRegistry.register(strainPack) // flagship + default
+  packRegistry.register(batteryPack)
   registered = true
 }
 

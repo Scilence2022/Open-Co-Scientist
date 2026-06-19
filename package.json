@@ -1,9 +1,9 @@
 {
-  "name": "strain-co-scientist",
+  "name": "open-co-scientist",
   "version": "0.1.0",
-  "description": "Strain Co-Scientist — a multi-agent AI system for rational engineering of industrial strains, adapted from Google's Co-Scientist (Nature 2026).",
+  "description": "Open Co-Scientist — a domain-pluggable multi-agent AI research platform implementing the Co-Scientist architecture (Gottweis et al., Nature 2026), with strain engineering as the flagship domain.",
   "main": "out/main/index.js",
-  "author": "Strain Co-Scientist",
+  "author": "Open Co-Scientist",
   "license": "MIT",
   "scripts": {
     "dev": "electron-vite dev",
