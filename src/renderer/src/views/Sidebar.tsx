@@ -1,6 +1,7 @@
 import { useStore, usePack } from '../store/useStore'
 import { NAV } from '../App'
 import { IconSettings } from '../components/Icons'
+import { PLATFORM_NAME } from '@shared/domainpack'
 
 export function Sidebar(): JSX.Element {
   const { view, setView, snapshot, openDesign } = useStore()
@@ -19,7 +20,7 @@ export function Sidebar(): JSX.Element {
         <div className="brand-mark">
           <Logo />
           <div>
-            <div className="brand-title">{pack.labels.appName}</div>
+            <div className="brand-title">{PLATFORM_NAME}</div>
           </div>
         </div>
         <div className="brand-sub">{pack.labels.tagline}</div>
