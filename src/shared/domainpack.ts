@@ -133,6 +133,13 @@ export interface SafetyGate {
 }
 
 /**
+ * The platform's product name, shown in the app's main brand/chrome regardless of
+ * which DomainPack is active. Individual packs still carry their own
+ * {@link PackLabels.appName} for pack-specific contexts (e.g. the pack picker).
+ */
+export const PLATFORM_NAME = 'Open Co-Scientist'
+
+/**
  * UI noun overrides so views never hardcode "Design"/"Host"/"wet-lab". Each is a
  * short label the renderer substitutes into chrome, headers, and form fields.
  */
