@@ -1,5 +1,5 @@
-appId: org.strain-co-scientist.app
-productName: Strain Co-Scientist
+appId: org.open-co-scientist.app
+productName: Open Co-Scientist
 directories:
   output: release
   buildResources: build
