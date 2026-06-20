@@ -174,6 +174,41 @@ export interface PackLabels {
 }
 
 /**
+ * A fully-specified, ready-to-run example campaign a pack ships to demonstrate
+ * the domain. The New-campaign form's "Load example" action fills its inputs
+ * from this, so every field mirrors a form input and references this pack's own
+ * ids. Optional — a pack without one simply hides the button.
+ */
+export interface CampaignExample {
+  /** The optimisation target (fills the {@link PackLabels.target} field). */
+  target: string
+  /** A {@link SystemPreset} id from this pack. */
+  systemId: string
+  /** Name shown when `systemId` is the pack's custom preset. */
+  customName?: string
+  /** Extra system-detail line (e.g. a strain background or cell spec). */
+  systemDetail?: string
+  /** Additional system notes for the agents. */
+  notes?: string
+  /** An objective id from this pack's {@link DomainPack.objectives}. */
+  objective: string
+  /** The full natural-language research goal (the heart of the example). */
+  goal: string
+  /** Desirable attributes / preferences free-text. */
+  preferences?: string
+  /** Available tools/methods (comma-joined into the form). */
+  availableTools?: string[]
+  /** Forbidden actions (comma-joined into the form). */
+  forbiddenActions?: string[]
+  /** A complianceLevel id from this pack, if it declares any. */
+  complianceLevel?: string
+  /** Seeds the "only propose novel" checkbox. */
+  onlyNovel?: boolean
+  /** Optional campaign title (auto-generated from target/system if omitted). */
+  title?: string
+}
+
+/**
  * The complete domain contract. Everything domain-specific lives here; the
  * engine, tournament, learn-loop, and UI shell consume it through this one
  * object resolved from the {@link DomainPackRegistry}.
@@ -183,6 +218,8 @@ export interface DomainPack {
   /** Stable pack id persisted on every campaign (Campaign.packId). */
   id: string
   labels: PackLabels
+  /** An optional ready-to-run example campaign demonstrating the domain. */
+  example?: CampaignExample
   /** Generalizes EngineeringObjective + OBJECTIVE_LABELS. */
   objectives: VocabOption[]
   /** Generalizes InterventionType + INTERVENTION_LABELS. */

@@ -155,9 +155,41 @@ async function callBestMatch(
   }
 }
 
+const EXAMPLE = {
+  target: 'Mevalonate',
+  systemId: 'ecoli',
+  systemDetail: 'BL21(DE3)',
+  notes: 'M9 glucose minimal medium, aerobic fed-batch; T7 expression background.',
+  objective: 'increase-titer',
+  goal: `Increase mevalonate titer in E. coli BL21(DE3) from the current ~5 g/L to >15 g/L over 48 h aerobic fed-batch on glucose. The upper mevalonate pathway (atoB–HMGS–HMGR) is expressed from a medium-copy plasmid under pTrc.
+
+Known bottlenecks:
+1. Acetyl-CoA supply is limiting — flux is drained by the TCA cycle and acetate overflow.
+2. HMG-CoA reductase (HMGR) is NADPH-dependent and we suspect cofactor imbalance under high glucose.
+3. Acetate accumulates to >3 g/L, acidifying the culture and repressing growth.
+
+Prior attempts: expressing the full pathway from a high-copy plasmid raised titer ~20% but tanked growth (metabolic burden) and increased plasmid loss; knocking out pta alone cut acetate but also starved the pathway of acetyl-CoA. 13C-MFA shows ~40% of carbon lost to CO2 and acetate.
+
+Consider acetyl-CoA boosting, NADPH regeneration, dynamic growth/production decoupling, and burden reduction via genome integration or balanced expression.`,
+  preferences:
+    'Prefer interventions that integrate into the genome (plasmid-free, marker-free final strain), keep the strain on minimal glucose medium, and avoid inducer cost at scale. Favour designs testable with our existing GC-MS mevalonate assay and 13C-MFA.',
+  availableTools: [
+    'CRISPR-Cas9 / λ-Red recombineering',
+    'RBS Calculator',
+    'characterised promoter library (pTrc, T7, Anderson)',
+    'plasmid + genome integration',
+    '13C-MFA',
+    'GC-MS mevalonate assay'
+  ],
+  forbiddenActions: ['antibiotic-resistance markers in the final strain', 'BSL-2 organisms'],
+  complianceLevel: 'BSL-1',
+  onlyNovel: false
+} satisfies DomainPack['example']
+
 const STRAIN_PACK: DomainPack = {
   id: 'strain',
   labels: LABELS,
+  example: EXAMPLE,
   objectives: OBJECTIVES,
   methodTypes: METHOD_TYPES,
   metrics: METRICS,

@@ -244,9 +244,39 @@ function systemBlock(campaign: Campaign): string {
   return lines.join('\n')
 }
 
+const EXAMPLE = {
+  target: '4C fast-charge of an NMC811 || graphite full cell',
+  systemId: 'pouch-single-layer',
+  systemDetail: 'Single-layer pouch, ~3 mAh/cm² cathode, N/P ≈ 1.1, 1 M LiPF6 EC/EMC + 2% VC',
+  notes: 'Baseline: 80% capacity retention after 500 cycles at 1C; charging at 4C plates Li on graphite and fades fast.',
+  objective: 'increase-fast-charge',
+  goal: `Enable 4C fast-charge (15 min to 80% SOC) of a single-layer NMC811 || graphite pouch full cell while keeping ≥80% capacity retention over 500 cycles and avoiding lithium plating on the graphite anode.
+
+Failure mode: at 4C the cell plates Li (post-mortem shows grey dead Li) because the graphite lithiation potential drops below 0 V vs Li/Li+ under high overpotential. The limits are slow Li+ solid-state diffusion in graphite, sluggish charge-transfer/desolvation at the anode SEI, and electrolyte transport through the thick (~70 µm) electrode.
+
+Known levers: anode — Si–C blending to raise the potential plateau, smaller particles / secondary porosity, surface coatings to lower charge-transfer resistance; electrolyte — additives/solvents that lower desolvation energy and build a thinner, more conductive SEI; architecture — lower loading / higher porosity / dual-layer electrodes.
+
+Prior attempts: lowering loading met the fast-charge target but cut energy density ~18% (unacceptable); a 5% Si blend improved rate but faded faster from expansion. Reference-electrode data shows the anode hits 0 V at ~3.2C.
+
+Consider combinations that attack the rate limit without sacrificing energy density or cycle life, and reason explicitly about the Li-plating margin.`,
+  preferences:
+    'Prefer modifications compatible with existing slurry-casting and roll-to-roll manufacturing, avoid exotic or scarce precursors, and keep volumetric energy density within 10% of baseline. Favour formulations testable in our coin- and single-layer-pouch workflow with reference-electrode plating detection.',
+  availableTools: [
+    'slurry casting + calendering',
+    'single-layer pouch assembly',
+    'reference-electrode cells',
+    'dQ/dV + EIS',
+    'post-mortem (plating / SEM)',
+    'electrolyte additive screen'
+  ],
+  forbiddenActions: ['lithium-metal anode', 'flammable / unstable additives'],
+  onlyNovel: false
+} satisfies DomainPack['example']
+
 const BATTERY_PACK: DomainPack = {
   id: 'battery',
   labels: LABELS,
+  example: EXAMPLE,
   objectives: OBJECTIVES,
   methodTypes: METHOD_TYPES,
   metrics: METRICS,

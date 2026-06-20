@@ -149,6 +149,25 @@ function CampaignForm({ onClose }: { onClose: () => void }): JSX.Element {
     setTournamentConfig({ ...DEFAULT_TOURNAMENT_CONFIG, weights: defaultWeights(next) })
   }
 
+  // Prefill every input from the active pack's shipped example campaign.
+  const loadExample = (): void => {
+    const ex = pack.example
+    if (!ex) return
+    setSystemId(ex.systemId)
+    setCustomName(ex.customName ?? '')
+    setSystemDetail(ex.systemDetail ?? '')
+    setSystemNotes(ex.notes ?? '')
+    setTarget(ex.target)
+    setObjective(ex.objective)
+    setGoal(ex.goal)
+    setPreferences(ex.preferences ?? '')
+    setTools((ex.availableTools ?? []).join(', '))
+    setForbidden((ex.forbiddenActions ?? []).join(', '))
+    if (ex.complianceLevel) setComplianceLevel(ex.complianceLevel)
+    setOnlyNovel(ex.onlyNovel ?? false)
+    setTitle(ex.title ?? '')
+  }
+
   const selectedSystem = pack.systemPresets.find((s) => s.id === systemId)
   const valid = target.trim() && goal.trim()
 
@@ -195,6 +214,16 @@ function CampaignForm({ onClose }: { onClose: () => void }): JSX.Element {
               Define the research goal, {pack.labels.system.toLowerCase()}, and constraints.
             </div>
           </div>
+          {pack.example && (
+            <button
+              className="btn btn-ghost"
+              onClick={loadExample}
+              title={`Prefill a worked ${pack.labels.appName} example you can run as-is or edit`}
+              style={{ marginRight: 6 }}
+            >
+              Load example
+            </button>
+          )}
           <button className="btn btn-icon btn-ghost" onClick={onClose}>
             <IconClose size={16} />
           </button>
