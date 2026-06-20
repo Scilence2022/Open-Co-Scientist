@@ -6,7 +6,11 @@
  */
 import { packRegistry } from '@shared/packRegistry'
 import strainPack from './strain'
+import proteinPack from './protein'
+import moleculePack from './molecule'
 import batteryPack from './battery'
+import catalystPack from './catalyst'
+import generalPack from './general'
 
 let registered = false
 
@@ -14,7 +18,11 @@ let registered = false
 export function registerDomainPacks(): void {
   if (registered) return
   packRegistry.register(strainPack) // flagship + default
+  packRegistry.register(proteinPack)
+  packRegistry.register(moleculePack)
   packRegistry.register(batteryPack)
+  packRegistry.register(catalystPack)
+  packRegistry.register(generalPack) // domain-neutral catch-all
   registered = true
 }
 
